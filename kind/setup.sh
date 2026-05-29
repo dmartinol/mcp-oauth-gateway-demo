@@ -81,7 +81,7 @@ kubectl wait --for=condition=Ready mcpgatewayextension/mcp-gateway \
 # merge when reconciling the deployment, so unknown env vars survive restarts.
 echo "==> Configuring OAuth Protected Resource metadata..." >&2
 kubectl set env deployment/mcp-gateway -n mcp-system \
-  OAUTH_RESOURCE_NAME="Red Hat Insights MCP" \
+  OAUTH_RESOURCE_NAME="Red Hat MCP Gateway" \
   OAUTH_RESOURCE="http://${MCP_PUBLIC_HOST}:${MCP_PUBLIC_PORT}/mcp" \
   OAUTH_AUTHORIZATION_SERVERS="${MCP_AUTH_BASE}" \
   OAUTH_BEARER_METHODS_SUPPORTED="header" \

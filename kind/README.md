@@ -1,9 +1,14 @@
-# Kind Deployment: MCP Gateway with insights-mcp
+# Kind Deployment: MCP OAuth Gateway (with insights-mcp as example backend)
 
 This guide deploys MCP Gateway on a local Kind cluster with Kuadrant authentication enforcement.
 Unlike the [local-deployment](../local-deployment/) option, Kuadrant's AuthPolicy enforces
 authentication at the gateway layer, so MCP clients (Cursor, MCP Inspector) discover the
 authorization server automatically and handle the OAuth flow without manual token injection.
+
+**insights-mcp is the example backend.** The gateway and auth infrastructure (Istio, Kuadrant
+AuthPolicy, MCPServerRegistration) are backend-agnostic. To register an additional MCP service,
+deploy it in-cluster and apply its own HTTPRoute, credential Secret, and `MCPServerRegistration`
+— the gateway and AuthPolicy do not need to change.
 
 ## Overview
 

@@ -1,7 +1,11 @@
-# Local Deployment: MCP Gateway with insights-mcp
+# Local Deployment: MCP OAuth Gateway (with insights-mcp as example backend)
 
-This guide sets up MCP Gateway locally using the standalone binary with Podman-hosted Envoy.
-It routes MCP tools from `insights-mcp` and authenticates via the Red Hat MCP Auth Adapter.
+This guide sets up MCP Gateway locally using the standalone binary with Podman-hosted Envoy,
+demonstrating the OAuth authorization flow via the [MCP Auth Proxy](https://gitlab.cee.redhat.com/lightforge/mcp-auth-proxy)
+(`https://mcp-auth.api.redhat.com`) and Red Hat SSO.
+
+`insights-mcp` is the example backend. Additional MCP servers can be registered by adding entries
+to `config.yaml` and corresponding clusters + virtual hosts to `envoy.yaml`.
 
 ## Overview
 
@@ -147,7 +151,9 @@ servers:
 | `url` | Where the broker connects to fetch tools. Use `127.0.0.1` (not `localhost`) to force IPv4 on macOS. |
 | `hostname` | Virtual hostname the router injects as `:authority` to steer `tools/call` to the right Envoy cluster. Must match an Envoy `domains` entry. |
 | `prefix` | Prepended to every tool name to avoid collisions when aggregating multiple servers. |
-| `auth.token` | Bearer token the broker uses for its own connection to insights-mcp (for tool listing). |
+| `auth.token` | Bearer token the broker uses for its own connection to the backend (for tool listing). |
+
+**Adding another MCP server:** append a new entry under `servers:` with a distinct `name`, `hostname`, and `prefix`, then add a matching cluster and virtual host to `envoy.yaml`. Run `start.sh` to apply.
 
 ### `envoy.yaml` — Envoy proxy
 

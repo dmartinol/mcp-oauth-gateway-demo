@@ -1,15 +1,27 @@
-# insights-mcp-gateway-demo
+# MCP OAuth Gateway Demo
 
-Example deployments of [MCP Gateway](https://github.com/Kuadrant/mcp-gateway) wired to
-[Red Hat Insights MCP](https://github.com/RedHatInsights/insights-mcp), showing two deployment
-topologies from local development to Kubernetes-with-auth.
+Example deployments that demonstrate the **OAuth authorization flow** for MCP services using
+[Red Hat SSO](https://sso.redhat.com) as the identity provider.
+
+The gateway infrastructure is provided by [MCP Gateway](https://github.com/Kuadrant/mcp-gateway).
+Authentication is handled by the [MCP Auth Proxy](https://gitlab.cee.redhat.com/lightforge/mcp-auth-proxy),
+exposed at `https://mcp-auth.api.redhat.com`. It implements Dynamic Client Registration (DCR) and
+Authorization Code + PKCE on top of Red Hat SSO, so MCP clients like Cursor can authenticate
+automatically when they receive a `401` response.
+
+[Red Hat Insights MCP](https://github.com/RedHatInsights/insights-mcp) is used as the **example
+backend service**. The same infrastructure supports any number of MCP servers — registering a new
+one requires only a credential Secret, an HTTPRoute, and an `MCPServerRegistration` object (kind) or
+a new entry in `config.yaml` (local).
 
 ## Deployments
 
-| Directory | Stack | Auth | Use case |
+Two environments are provided, differing in where authentication is enforced:
+
+| Directory | Stack | Auth enforcement | Use case |
 |---|---|---|---|
-| [`local-deployment/`](local-deployment/) | Binary + Podman Envoy | Pass-through (insights-mcp validates) | Fast local iteration |
-| [`kind/`](kind/) | Kind + Istio + Kuadrant | AuthPolicy (JWT at gateway) | Full auth flow, Cursor auto-login |
+| [`local-deployment/`](local-deployment/) | Binary + Podman Envoy | Pass-through (each backend validates) | Fast local iteration |
+| [`kind/`](kind/) | Kind + Istio + Kuadrant | Kuadrant AuthPolicy at the gateway | Full OAuth flow, Cursor auto-login |
 
 ## Pinned versions
 
