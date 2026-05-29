@@ -1,0 +1,14 @@
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: insights-mcp
+  namespace: mcp-system
+spec:
+  toolPrefix: "insights_"
+  credentialRef:
+    name: insights-mcp-token
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: insights-mcp-route
+    namespace: mcp-system

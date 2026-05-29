@@ -1,0 +1,9 @@
+servers:
+  - name: insights-mcp
+    url: http://127.0.0.1:8080/mcp
+    hostname: insights-mcp.mcp.local
+    prefix: "insights_"
+    state: Enabled
+    auth:
+      type: bearer
+      token: "INSIGHTS_MCP_TOKEN_PLACEHOLDER"

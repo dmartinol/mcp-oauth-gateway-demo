@@ -1,0 +1,6 @@
+apiVersion: v2
+name: insights-mcp
+description: Deploys the Red Hat Insights MCP server inside a Kind cluster.
+type: application
+version: 0.1.0
+appVersion: "latest"
