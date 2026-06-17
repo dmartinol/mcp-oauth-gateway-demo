@@ -78,9 +78,10 @@ Total time: approximately 10–15 minutes.
 | Variable | Default | Purpose |
 |---|---|---|
 | `MCP_GATEWAY_VERSION` | `0.6.1` | MCP Gateway Helm chart version |
-| `MCP_PUBLIC_HOST` | `mcp.127-0-0-1.sslip.io` | Public hostname (resolves to 127.0.0.1 via sslip.io) |
+| `MCP_PUBLIC_HOST` | `localhost` | Public hostname Cursor connects to (must stay on HTTP for local OAuth) |
 | `MCP_PUBLIC_PORT` | `8001` | Host port for the Kind NodePort |
-| `MCP_AUTH_BASE` | `https://mcp-auth.api.redhat.com` | MCP Auth Adapter base URL |
+| `MCP_AUTH_BASE` | `https://mcp-auth.stage.api.redhat.com` | MCP Auth Adapter base URL |
+| `SSO_ISSUER_URL` | `https://sso.stage.redhat.com/auth/realms/redhat-external` | SSO JWT issuer for AuthPolicy validation |
 | `CLUSTER_NAME` | `kind` | Kind cluster name |
 | `CALLBACK_PORT` | `9090` | Local port for OAuth browser callback |
 
@@ -131,15 +132,20 @@ Add the gateway URL to Cursor's MCP configuration (`~/.cursor/mcp.json`):
 {
   "mcpServers": {
     "mcp-gateway": {
-      "url": "http://mcp.127-0-0-1.sslip.io:8001/mcp"
+      "url": "http://localhost:8001/mcp"
     }
   }
 }
 ```
 
+> Use `localhost`, not `mcp.127-0-0-1.sslip.io`. Cursor's Chromium stack may
+> HTTPS-upgrade public-looking hostnames before OAuth starts, which fails against
+> this HTTP-only gateway (`ERR_SSL_CLIENT_AUTH_CERT_NEEDED`) and never opens the
+> login browser.
+
 > **No token needed.** When Cursor connects and receives the `401 Unauthorized` response, it reads the
 > `WWW-Authenticate` header, discovers the authorization server at
-> `https://mcp-auth.api.redhat.com`, performs DCR + Authorization Code + PKCE automatically,
+> `https://mcp-auth.stage.api.redhat.com`, performs DCR + Authorization Code + PKCE automatically,
 > and completes the Red Hat SSO login in a browser window.
 
 Restart Cursor or reload MCP servers (**Settings → MCP → Refresh**) after editing `mcp.json`.
@@ -148,14 +154,14 @@ Restart Cursor or reload MCP servers (**Settings → MCP → Refresh**) after ed
 
 ```bash
 # Gateway health (without auth — should return 401)
-curl -v http://mcp.127-0-0-1.sslip.io:8001/mcp \
+curl -v http://localhost:8001/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 # Expected: 401 with WWW-Authenticate header
 
 # OAuth discovery endpoint (no auth required)
-curl -sS http://mcp.127-0-0-1.sslip.io:8001/.well-known/oauth-protected-resource | jq .
-# Expected: authorization_servers contains https://mcp-auth.api.redhat.com
+curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .
+# Expected: authorization_servers contains https://mcp-auth.stage.api.redhat.com
 
 # Broker status
 kubectl get mcpsr -n mcp-system
@@ -198,6 +204,30 @@ broker pod to reload credentials.
 | `manifests/mcpserverregistration.yaml` | Registers insights-mcp with broker; references broker token Secret |
 
 ## Troubleshooting
+
+### Cursor shows `needsAuth` but never opens a browser
+
+1. Confirm `~/.cursor/mcp.json` uses `http://localhost:8001/mcp` (not `sslip.io`).
+2. Reload MCP servers, then click **Needs authentication** under the server name (not Connect).
+3. Check **View → Output → MCP: mcp-gateway** for `MCP OAuth redirect to authorization`.
+4. Verify the discovery chain from a terminal:
+
+```bash
+curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .
+curl -sv http://localhost:8001/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' 2>&1 | grep -i www-authenticate
+# Expected: resource_metadata=http://localhost:8001/.well-known/oauth-protected-resource
+```
+
+If you see `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` in Cursor logs, the OAuth metadata URLs
+are still pointing at a public-looking hostname (`sslip.io`). Re-point the cluster
+and Cursor config at `localhost`:
+
+```bash
+./reconfigure-public-host.sh
+# then set url to http://localhost:8001/mcp in ~/.cursor/mcp.json and reload MCP
+```
 
 ### `kubectl wait` times out on MCPGatewayExtension
 
@@ -292,7 +322,7 @@ kubectl apply -f manifests/insights-mcp-httproute.yaml
 kubectl apply -f manifests/authpolicy.yaml
 
 # Create broker token Secret (browser login)
-TOKEN=$(python3 ../local-deployment/get-token.py --mcp-auth-base https://mcp-auth.api.redhat.com --callback-port 9090)
+TOKEN=$(python3 ../local-deployment/get-token.py --mcp-auth-base https://mcp-auth.stage.api.redhat.com --callback-port 9090)
 kubectl create secret generic insights-mcp-token --from-literal=token="${TOKEN}" -n mcp-system
 
 kubectl apply -f manifests/mcpserverregistration.yaml

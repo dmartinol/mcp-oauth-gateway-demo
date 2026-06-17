@@ -11,13 +11,13 @@
 #
 # Env vars (all optional):
 #   INSIGHTS_MCP_VALUES   Extra Helm flags, e.g. "-f my-values.yaml" or "--set image.tag=dev"
-#   MCP_AUTH_BASE         Auth adapter base URL (default: https://mcp-auth.api.redhat.com)
+#   MCP_AUTH_BASE         Auth adapter base URL (default: https://mcp-auth.stage.api.redhat.com)
 #   CALLBACK_PORT         Local OAuth callback port (default: 9090)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.api.redhat.com}"
+MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.stage.api.redhat.com}"
 CALLBACK_PORT="${CALLBACK_PORT:-9090}"
 
 # ── insights-mcp Helm release ─────────────────────────────────────────────────

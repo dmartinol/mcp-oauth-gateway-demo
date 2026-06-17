@@ -2,7 +2,7 @@
 
 This guide sets up MCP Gateway locally using the standalone binary with Podman-hosted Envoy,
 demonstrating the OAuth authorization flow via the [MCP Auth Proxy](https://gitlab.cee.redhat.com/lightforge/mcp-auth-proxy)
-(`https://mcp-auth.api.redhat.com`) and Red Hat SSO.
+(`https://mcp-auth.stage.api.redhat.com`) and Red Hat SSO.
 
 `insights-mcp` is the example backend. Additional MCP servers can be registered by adding entries
 to `config.yaml` and corresponding clusters + virtual hosts to `envoy.yaml`.
@@ -36,7 +36,20 @@ MCP Client (Cursor)
 - Python 3 (for the OAuth login flow)
 - Podman 4.1+
 - The `insights-mcp` server already running on `http://127.0.0.1:8080/mcp`
-- The mcp-gateway source checked out
+- The [mcp-gateway](https://github.com/Kuadrant/mcp-gateway) source checked out
+
+### Clone mcp-gateway
+
+`start.sh` builds `mcp-broker-router` from source. Clone the gateway repo as a sibling
+of this demo repo (or set `MCP_GATEWAY_ROOT` to your checkout path):
+
+```bash
+git clone https://github.com/Kuadrant/mcp-gateway.git ../mcp-gateway
+cd ../mcp-gateway && git checkout v0.6.1
+```
+
+> **Note:** `start.sh` previously assumed this demo lived inside the mcp-gateway tree.
+> If you see `go.mod file not found`, the clone step above is required.
 
 ## Step 1: Set required environment variables
 
@@ -47,33 +60,14 @@ export GATEWAY_SIGNING_KEY=$(openssl rand -hex 32)
 
 # MCP Auth Adapter — authorization server for the MCP ecosystem.
 # Implements DCR and proxies to Red Hat SSO.
-export MCP_AUTH_BASE=https://mcp-auth.api.redhat.com
+export MCP_AUTH_BASE=https://mcp-auth.stage.api.redhat.com
 
 # Persist to .env for subsequent sessions
 echo "export GATEWAY_SIGNING_KEY=${GATEWAY_SIGNING_KEY}" > .env
 echo "export MCP_AUTH_BASE=${MCP_AUTH_BASE}" >> .env
 ```
 
-## Step 2: Configure Cursor with a fresh token
-
-Run this before starting Cursor (and again when the token expires):
-
-```bash
-./cursor-config.sh
-```
-
-This will:
-1. Register a client via DCR at `https://mcp-auth.api.redhat.com/register`
-2. Open your browser for Red Hat SSO login
-3. Capture the authorization code via a local callback server on `:9090`
-4. Write the token into `~/.cursor/mcp.json` under the `mcp-gateway` entry
-
-After it completes, restart Cursor or reload MCP servers (**Settings → MCP → Refresh**).
-
-> **Token expiry:** RH SSO access tokens expire in ~5 minutes. Rerun `./cursor-config.sh`
-> and reload Cursor when tools stop working.
-
-## Step 3: Start the gateway
+## Step 2: Start the gateway
 
 ```bash
 source .env
@@ -81,13 +75,33 @@ source .env
 ```
 
 `start.sh` will:
-1. Obtain a broker access token via the same OAuth flow (browser login)
-2. Write `config.runtime.yaml` with the token substituted in
-3. Build the `mcp-broker-router` binary from source
-4. Start an Envoy container (Podman) on `:8888`
-5. Start the broker-router on `:8081` (router on `:50051`)
+1. Obtain an access token via OAuth (browser login)
+2. Write the token into `~/.cursor/mcp.json` under the `mcp-gateway` entry
+3. Write `config.runtime.yaml` with the same token substituted in
+4. Build the `mcp-broker-router` binary from source
+5. Start an Envoy container (Podman) on `:8888`
+6. Start the broker-router on `:8081` (router on `:50051`)
 
-## Step 4: Verify
+After it completes, restart Cursor or reload MCP servers (**Settings → MCP → Refresh**).
+
+> **Token expiry:** RH SSO access tokens expire in ~5 minutes. Rerun `./start.sh`
+> (or just `./cursor-config.sh` if the gateway is already running) and reload Cursor
+> when tools stop working.
+
+To start the gateway without touching `~/.cursor/mcp.json`: `SKIP_CURSOR_CONFIG=1 ./start.sh`
+
+## Step 3: Refresh Cursor token only (optional)
+
+If the gateway is already running and you only need a new token in Cursor:
+
+```bash
+./cursor-config.sh
+```
+
+This runs the same OAuth flow and updates `~/.cursor/mcp.json` without restarting Envoy
+or the broker.
+
+## Step 4: Verify (optional)
 
 ```bash
 # Health check (direct to broker)
@@ -95,7 +109,7 @@ curl http://localhost:8081/healthz
 
 # Check authorization server advertisement
 curl -sS http://localhost:8888/.well-known/oauth-protected-resource | jq .
-# Expected: authorization_servers contains https://mcp-auth.api.redhat.com
+# Expected: authorization_servers contains https://mcp-auth.stage.api.redhat.com
 
 # List aggregated tools through Envoy (requires a valid token)
 TOKEN=$(./get-token.sh)
@@ -111,20 +125,21 @@ Expected: tools prefixed with `insights_` from the insights-mcp server.
 
 | Script | Purpose |
 |---|---|
-| `start.sh` | Builds binary, starts Envoy + broker-router |
+| `start.sh` | OAuth login, updates `~/.cursor/mcp.json`, builds binary, starts Envoy + broker-router |
 | `get-token.sh` | Gets an access token via MCP Auth Adapter (OAuth2 + PKCE) |
-| `cursor-config.sh` | Gets a token and writes it into `~/.cursor/mcp.json` |
+| `cursor-config.sh` | Gets a token and writes it into `~/.cursor/mcp.json` (without restarting the gateway) |
 
 ### Environment variables
 
 | Variable | Default | Required | Purpose |
 |---|---|---|---|
 | `GATEWAY_SIGNING_KEY` | — | Yes | JWT session signing key (≥32 bytes) |
-| `MCP_AUTH_BASE` | `https://mcp-auth.api.redhat.com` | No | MCP Auth Adapter base URL |
+| `MCP_AUTH_BASE` | `https://mcp-auth.stage.api.redhat.com` | No | MCP Auth Adapter base URL |
 | `BROKER_PORT` | `8081` | No | Broker HTTP port (must not conflict with insights-mcp) |
 | `MCP_PUBLIC_HOST` | `localhost:8888` | No | Hostname:port Envoy listens on |
 | `LOG_LEVEL` | `0` | No | `-4`=debug, `0`=info, `4`=warn, `8`=error |
 | `CALLBACK_PORT` | `9090` | No | Local port for OAuth browser callback |
+| `SKIP_CURSOR_CONFIG` | `0` | No | Set to `1` to skip updating `~/.cursor/mcp.json` in `start.sh` |
 
 ## Configuration files
 
@@ -178,12 +193,12 @@ discover this automatically.
 
 ```
 Cursor → GET /.well-known/oauth-protected-resource
-       ← authorization_servers: ["https://mcp-auth.api.redhat.com"]
+       ← authorization_servers: ["https://mcp-auth.stage.api.redhat.com"]
 
-Cursor → GET https://mcp-auth.api.redhat.com/.well-known/openid-configuration
+Cursor → GET https://mcp-auth.stage.api.redhat.com/.well-known/openid-configuration
        ← registration_endpoint, authorization_endpoint, token_endpoint
 
-Cursor → POST https://mcp-auth.api.redhat.com/register  (DCR)
+Cursor → POST https://mcp-auth.stage.api.redhat.com/register  (DCR)
        ← client_id: "mcp-client"
 
 Cursor → Authorization Code + PKCE flow → RH SSO login → access token
@@ -194,10 +209,28 @@ Cursor → POST http://localhost:8888/mcp
 ```
 
 In standalone mode the gateway does not enforce authentication itself — it passes the
-`Authorization` header through to insights-mcp which validates it. Use `./cursor-config.sh`
-to inject a valid token into Cursor until automatic token acquisition is supported.
+`Authorization` header through to insights-mcp which validates it. `start.sh` injects a
+valid token into `~/.cursor/mcp.json`; use `./cursor-config.sh` to refresh it without
+restarting the gateway.
 
 ## Troubleshooting
+
+### `go.mod file not found` when building mcp-broker-router
+
+`start.sh` needs the Kuadrant/mcp-gateway source tree. Clone it and checkout a
+compatible tag:
+
+```bash
+git clone https://github.com/Kuadrant/mcp-gateway.git ../mcp-gateway
+cd ../mcp-gateway && git checkout v0.6.1
+```
+
+Or point to an existing checkout:
+
+```bash
+export MCP_GATEWAY_ROOT=/path/to/mcp-gateway
+./start.sh
+```
 
 ### `GATEWAY_SIGNING_KEY must be set`
 
@@ -266,7 +299,7 @@ pkill -f mcp-broker-router
 
 - No dynamic server discovery — server changes require editing `config.yaml` and restarting
 - No built-in token enforcement — the gateway passes tokens through; insights-mcp validates them
-- Access tokens expire (~5 min) — rerun `./cursor-config.sh` and reload Cursor
+- Access tokens expire (~5 min) — rerun `./start.sh` or `./cursor-config.sh` and reload Cursor
 - No virtual server filtering (per-client tool subsets)
 - Single instance — no HA without external load balancing and Redis session store
 

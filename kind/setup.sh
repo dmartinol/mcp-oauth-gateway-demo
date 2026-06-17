@@ -10,9 +10,10 @@
 #
 # Env vars (all optional):
 #   MCP_GATEWAY_VERSION   Helm chart version (default: 0.6.1)
-#   MCP_PUBLIC_HOST       Hostname Cursor connects to (default: mcp.127-0-0-1.sslip.io)
+#   MCP_PUBLIC_HOST       Hostname Cursor connects to (default: localhost)
 #   MCP_PUBLIC_PORT       NodePort mapped on the host (default: 8001)
-#   MCP_AUTH_BASE         Auth adapter base URL (default: https://mcp-auth.api.redhat.com)
+#   MCP_AUTH_BASE         Auth adapter base URL (default: https://mcp-auth.stage.api.redhat.com)
+#   SSO_ISSUER_URL        SSO JWT issuer for AuthPolicy (default: https://sso.stage.redhat.com/auth/realms/redhat-external)
 #   CLUSTER_NAME          Kind cluster name (default: kind)
 #   CALLBACK_PORT         Local OAuth callback port (default: 9090)
 #   INSIGHTS_MCP_VALUES   Extra Helm flags passed through to start-apps.sh
@@ -21,9 +22,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MCP_GATEWAY_VERSION="${MCP_GATEWAY_VERSION:-0.6.1}"
-MCP_PUBLIC_HOST="${MCP_PUBLIC_HOST:-mcp.127-0-0-1.sslip.io}"
+# Use localhost — not sslip.io. Chromium/Electron may HTTPS-upgrade public-looking
+# hostnames and fail with ERR_SSL_CLIENT_AUTH_CERT_NEEDED before OAuth can start.
+MCP_PUBLIC_HOST="${MCP_PUBLIC_HOST:-localhost}"
 MCP_PUBLIC_PORT="${MCP_PUBLIC_PORT:-8001}"
-MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.api.redhat.com}"
+MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.stage.api.redhat.com}"
+SSO_ISSUER_URL="${SSO_ISSUER_URL:-https://sso.stage.redhat.com/auth/realms/redhat-external}"
 CLUSTER_NAME="${CLUSTER_NAME:-kind}"
 CALLBACK_PORT="${CALLBACK_PORT:-9090}"
 export KIND_EXPERIMENTAL_PROVIDER=podman
@@ -85,11 +89,7 @@ kubectl set env deployment/mcp-gateway -n mcp-system \
   OAUTH_RESOURCE="http://${MCP_PUBLIC_HOST}:${MCP_PUBLIC_PORT}/mcp" \
   OAUTH_AUTHORIZATION_SERVERS="${MCP_AUTH_BASE}" \
   OAUTH_BEARER_METHODS_SUPPORTED="header" \
-  OAUTH_SCOPES_SUPPORTED="openid,offline_access"
-
-# Expose /.well-known/ through the public listener. The controller-owned route
-# only covers /mcp, so a separate HTTPRoute is needed and won't be overwritten.
-kubectl apply -f "${SCRIPT_DIR}/manifests/oauth-metadata-httproute.yaml"
+  OAUTH_SCOPES_SUPPORTED="openid,roles,id.roles,offline_access"
 
 kubectl rollout status deployment/mcp-gateway -n mcp-system --timeout=60s
 
@@ -119,8 +119,14 @@ kubectl wait --for=condition=available deployment/authorino \
 # ── Step 7: AuthPolicy ─────────────────────────────────────────────────────────
 # Enforces JWT validation at the Istio Gateway layer and emits the
 # WWW-Authenticate header that triggers Cursor's automatic OAuth flow.
-echo "==> Applying AuthPolicy..." >&2
-kubectl apply -f "${SCRIPT_DIR}/manifests/authpolicy.yaml"
+echo "==> Applying AuthPolicy (issuer: ${SSO_ISSUER_URL})..." >&2
+sed -e "s|https://sso.redhat.com/auth/realms/redhat-external|${SSO_ISSUER_URL}|" \
+    -e "s|__MCP_PUBLIC_HOST__|${MCP_PUBLIC_HOST}|g" \
+    -e "s|__MCP_PUBLIC_PORT__|${MCP_PUBLIC_PORT}|g" \
+  "${SCRIPT_DIR}/manifests/authpolicy.yaml" | kubectl apply -f -
+
+sed -e "s|__MCP_PUBLIC_HOST__|${MCP_PUBLIC_HOST}|g" \
+  "${SCRIPT_DIR}/manifests/oauth-metadata-httproute.yaml" | kubectl apply -f -
 
 # ── Steps 8-10: Deploy application workloads ──────────────────────────────────
 # Delegated to start-apps.sh so that infra and app lifecycles stay independent.

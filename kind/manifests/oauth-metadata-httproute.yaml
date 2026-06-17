@@ -9,7 +9,7 @@ spec:
     namespace: gateway-system
     sectionName: mcp
   hostnames:
-  - mcp.127-0-0-1.sslip.io
+  - __MCP_PUBLIC_HOST__
   rules:
   - matches:
     - path:

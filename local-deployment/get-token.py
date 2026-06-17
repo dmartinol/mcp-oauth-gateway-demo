@@ -54,8 +54,17 @@ class CallbackHandler(http.server.BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mcp-auth-base", default="https://mcp-auth.api.redhat.com")
+    parser.add_argument("--mcp-auth-base", default="https://mcp-auth.stage.api.redhat.com")
     parser.add_argument("--callback-port", type=int, default=9090)
+    parser.add_argument(
+        "--scope",
+        default=os.environ.get(
+            "OAUTH_SCOPES",
+            # Default works today; roles/id.roles require mcp-client optional scopes on stage SSO.
+            "openid offline_access id.roles",
+        ),
+        help="Space-delimited OAuth scopes for the authorization request",
+    )
     args = parser.parse_args()
 
     base = args.mcp_auth_base.rstrip("/")
@@ -89,12 +98,14 @@ def main():
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,
-        "scope": "openid offline_access",
+        "scope": args.scope,
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     })
     auth_url = f"{authorization_endpoint}?{params}"
+
+    print(f"Requesting scopes: {args.scope}", file=sys.stderr)
 
     # Step 4: local callback server
     server = http.server.HTTPServer(("localhost", args.callback_port), CallbackHandler)
@@ -108,6 +119,16 @@ def main():
 
     if CallbackHandler.error:
         print(f"Authorization failed: {CallbackHandler.error}", file=sys.stderr)
+        if "Invalid scopes" in (CallbackHandler.error or ""):
+            print(
+                "\nStage mcp-client cannot issue tokens for the requested scopes yet.\n"
+                "Keycloak must assign optional client scopes (roles, id.roles) to mcp-client.\n"
+                "Until then, use the default: openid offline_access id.roles\n"
+                "  ./get-token.sh\n"
+                "After SSO is fixed, retry with:\n"
+                "  OAUTH_SCOPES='openid roles id.roles' ./get-token.sh\n",
+                file=sys.stderr,
+            )
         sys.exit(1)
     if not CallbackHandler.code:
         print("No authorization code received (timeout?).", file=sys.stderr)
