@@ -82,6 +82,30 @@ is always external. See deployment-specific diagrams in
 [`local-deployment/README.md`](local-deployment/README.md#overview) and
 [`kind/README.md`](kind/README.md#overview).
 
+## How components connect
+
+The gateway does **not** proxy OAuth traffic to the adapter. Components are linked by metadata
+advertisement and by the JWT the client presents on MCP requests:
+
+| Link | What connects | How |
+|---|---|---|
+| Gateway → Adapter | PRM only | Gateway publishes `MCP_AUTH_BASE` in `/.well-known/oauth-protected-resource` (env vars locally; `MCPGatewayExtension` on kind) |
+| Client → Adapter | OAuth | Client reads PRM, then calls the adapter directly for DCR, `/authorize`, and `/token` |
+| Adapter → SSO | Identity | Adapter proxies login to Red Hat SSO and returns a JWT |
+| Client → Gateway | MCP | Client sends `Authorization: Bearer <JWT>` on `POST /mcp` |
+| Gateway → insights-mcp | MCP routing | Broker aggregates `tools/list`; `tools/call` routes to the upstream with the client's token |
+
+```
+MCP client ──PRM──► MCP Gateway          (discovery: where to get a token)
+     │                    │
+     │ OAuth              │ Bearer JWT on /mcp
+     ▼                    ▼
+MCP Auth Adapter ──► Red Hat SSO    broker-router ──► insights-mcp ──► Insights API
+```
+
+On **kind**, Kuadrant AuthPolicy validates the JWT at the Istio gateway before traffic reaches the
+broker. On **local-deployment**, the gateway forwards the token and insights-mcp validates it.
+
 ## Deployments
 
 Two environments are provided, differing in where authentication is enforced:
