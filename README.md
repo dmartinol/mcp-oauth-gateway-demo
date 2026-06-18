@@ -4,10 +4,11 @@ Example deployments that demonstrate the **OAuth authorization flow** for MCP se
 [Red Hat SSO](https://sso.redhat.com) as the identity provider.
 
 The gateway infrastructure is provided by [MCP Gateway](https://github.com/Kuadrant/mcp-gateway).
-Authentication is handled by the [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter),
-which implements DCR and Authorization Code + PKCE in front of Red Hat SSO. The Kind gateway
-returns `401` + `WWW-Authenticate` so clients can discover the adapter and obtain a token (verified
-with Claude Code; Cursor requires a Bearer workaround on localhost — see [kind/README.md](kind/README.md)).
+Authentication is handled by the hosted [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter)
+(see [MCP Auth Adapter](#mcp-auth-adapter)), which implements DCR and Authorization Code + PKCE
+in front of Red Hat SSO. The Kind gateway returns `401` + `WWW-Authenticate` so clients can discover
+the adapter and obtain a token (verified with Claude Code; Cursor requires a Bearer workaround on
+localhost — see [kind/README.md](kind/README.md)).
 
 [Red Hat Insights MCP](https://github.com/RedHatInsights/insights-mcp) is used as the **example backend
 service**. The same infrastructure supports any number of MCP servers — registering a new one requires only a
@@ -41,6 +42,46 @@ which responds with `403` and an HTML **Preprod Lockdown: Access Denied** page i
 **Note**:
 Scripts default to stage SSO; use `source env.prod` for production environment.
 
+## MCP Auth Adapter
+
+Both deployments obtain OAuth tokens from the hosted
+[MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter) — it does **not** run on your
+machine. The adapter sits between MCP clients and [Red Hat SSO](https://sso.redhat.com) and
+provides what a plain SSO realm does not expose directly to MCP tooling:
+
+- **OIDC discovery** — `/.well-known/openid-configuration` (authorize, token, registration endpoints)
+- **Dynamic Client Registration (DCR)** — clients register without a pre-provisioned OAuth app
+- **Authorization Code + PKCE** — browser login against Red Hat SSO, returning a JWT
+
+The adapter issues JWTs scoped for the Red Hat Insights API (`api.console api.ocm`). Each gateway
+deployment advertises the adapter as its authorization server in **Protected Resource Metadata**
+(PRM) at `/.well-known/oauth-protected-resource`. MCP clients that follow the
+[MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
+discover the adapter from PRM and run DCR + PKCE automatically; demo scripts also call the adapter
+directly via `get-token.py` to obtain tokens for the broker and for clients that cannot complete
+OAuth on localhost (e.g. Cursor).
+
+```
+MCP client                          MCP Auth Adapter (hosted)
+    │  DCR + Authorization Code + PKCE     DCR /authorize /token
+    │  (or get-token.py in demo scripts)         │
+    └────────────────────────────────────────────┘
+                                                 └──► Red Hat SSO
+                                                       (sso.stage.redhat.com or sso.redhat.com)
+```
+
+**Configuration** — select stage or production via `env.stage` / `env.prod`:
+
+| Variable | Stage | Production |
+|---|---|---|
+| `MCP_AUTH_BASE` | `https://mcp-auth.stage.api.redhat.com` | `https://mcp-auth.api.redhat.com` |
+| SSO realm | `sso.stage.redhat.com` | `sso.redhat.com` |
+
+The gateway stack (Envoy or Istio) validates or forwards the resulting Bearer token; the adapter
+is always external. See deployment-specific diagrams in
+[`local-deployment/README.md`](local-deployment/README.md#overview) and
+[`kind/README.md`](kind/README.md#overview).
+
 ## Deployments
 
 Two environments are provided, differing in where authentication is enforced:
@@ -52,8 +93,8 @@ Two environments are provided, differing in where authentication is enforced:
 
 ### Authentication workflows (overview)
 
-Both deployments use the same **token source** — the [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter)
-runs DCR + Authorization Code + PKCE in front of Red Hat SSO (`api.console api.ocm` scopes). They differ in
+Both deployments use the same **token source** — the [MCP Auth Adapter](#mcp-auth-adapter) runs
+DCR + Authorization Code + PKCE in front of Red Hat SSO (`api.console api.ocm` scopes). They differ in
 **where the client token is checked** on the way to Insights.
 
 **Obtain a token** (both deployments — via `get-token.py` / `cursor-config.sh`, or client-driven OAuth on kind):

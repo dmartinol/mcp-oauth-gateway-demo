@@ -12,14 +12,21 @@ deploy it in-cluster and apply its own HTTPRoute, credential Secret, and `MCPSer
 
 ## Overview
 
+OAuth tokens come from the hosted [MCP Auth Adapter](../README.md#mcp-auth-adapter) (`MCP_AUTH_BASE`) —
+not from the Kind cluster. The gateway advertises the adapter in PRM; Kuadrant AuthPolicy validates
+the JWTs it issues. Claude Code completes DCR + PKCE against the adapter automatically; demo scripts
+use `get-token.py` for broker credentials and Cursor workarounds.
+
 ```
-MCP Client (Cursor)
+MCP Client (Claude Code / Cursor)
     │
-    ▼ :8001 (Kind NodePort)
- Istio Gateway (mcp-gateway, gateway-system)
-    │  AuthPolicy → validates JWT from Red Hat SSO (automatic 401 + WWW-Authenticate)
-    │  EnvoyFilter → ext_proc → mcp-broker-router (mcp-system)
-    │
+    │  OAuth (DCR + PKCE) ──────────────────────────────┐
+    │  Bearer token on MCP requests                      │
+    ▼ :8001 (Kind NodePort)                              ▼
+ Istio Gateway (mcp-gateway, gateway-system)   MCP Auth Adapter (hosted)
+    │  AuthPolicy → validates JWT from adapter       DCR /authorize /token
+    │  EnvoyFilter → ext_proc → mcp-broker-router          │
+    │                                                        └──► Red Hat SSO
     ├── /mcp         → mcp-gateway service (:8080)   ← tools/list via broker
     └── tools/call   → insights-mcp.mcp.local        ← direct routing with client token
                           │
@@ -33,11 +40,13 @@ MCP Client (Cursor)
 
 | Component | Location | Role |
 |---|---|---|
+| [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter) | `MCP_AUTH_BASE` (external) | OAuth authorization server — see [root README](../README.md#mcp-auth-adapter) |
 | Istio Gateway | `gateway-system` | Receives MCP client traffic on NodePort 30471 (→ host :8001) |
 | Kuadrant AuthPolicy | `gateway-system` | Enforces JWT auth; returns 401 + WWW-Authenticate on failure |
-| mcp-broker-router | `mcp-system` | Aggregates tools, serves MCP protocol |
+| mcp-broker-router | `mcp-system` | Aggregates tools, serves MCP protocol; advertises adapter in PRM |
 | MCPServerRegistration | `mcp-system` | Registers insights-mcp with the broker |
 | insights-mcp | `mcp-system` :8000 | Red Hat Insights MCP server (in-cluster) |
+| Red Hat SSO | `sso.stage.redhat.com` / `sso.redhat.com` | Identity provider behind the adapter (selected via `env.stage` / `env.prod`) |
 
 ## Prerequisites
 
@@ -240,6 +249,9 @@ broker pod to reload credentials.
 > workaround today (see Troubleshooting).
 
 ## How authentication works (vs local-deployment)
+
+Both paths use the same hosted [MCP Auth Adapter](../README.md#mcp-auth-adapter) for token issuance.
+They differ in whether the gateway enforces the JWT before traffic reaches the broker:
 
 | | local-deployment | kind |
 |---|---|---|

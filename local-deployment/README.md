@@ -10,17 +10,10 @@ to `config.yaml` and corresponding clusters + virtual hosts to `envoy.yaml`.
 ## Overview
 
 The local stack runs on your machine (Envoy + broker-router + insights-mcp). **OAuth does not** —
-tokens come from the hosted [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter)
-(`MCP_AUTH_BASE`, e.g. `https://mcp-auth.stage.api.redhat.com`). It sits between MCP clients and
-Red Hat SSO and provides what a plain SSO realm does not expose directly to MCP tooling:
-
-- **OIDC discovery** — `/.well-known/openid-configuration` (authorize, token, registration endpoints)
-- **Dynamic Client Registration (DCR)** — clients register without a pre-provisioned OAuth app
-- **Authorization Code + PKCE** — browser login against Red Hat SSO, returning a JWT
-
-The broker advertises the adapter in **Protected Resource Metadata** (`/.well-known/oauth-protected-resource`).
-In this demo, `start.sh` also calls the adapter via `get-token.py` to obtain tokens for the broker
-and Cursor before the client connects. See [Authentication flow](#authentication-flow) for the full sequence.
+tokens come from the hosted [MCP Auth Adapter](../README.md#mcp-auth-adapter) (`MCP_AUTH_BASE`).
+The broker advertises the adapter in PRM (`/.well-known/oauth-protected-resource`). In this demo,
+`start.sh` also calls the adapter via `get-token.py` to obtain tokens for the broker and Cursor
+before the client connects. See [Authentication flow](#authentication-flow) for the full sequence.
 
 ```
 MCP Client (Cursor)
@@ -41,7 +34,7 @@ MCP Client (Cursor)
 
 | Component | Address | Role |
 |---|---|---|
-| [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter) | `MCP_AUTH_BASE` (external) | OAuth authorization server — DCR, PKCE, SSO proxy; issues JWTs for Insights |
+| [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter) | `MCP_AUTH_BASE` (external) | OAuth authorization server — see [root README](../README.md#mcp-auth-adapter) |
 | mcp-broker-router (broker) | host:8081 | Aggregates tools, serves MCP protocol; advertises adapter in PRM |
 | mcp-broker-router (router) | host:50051 | gRPC ext_proc — parses requests, sets routing headers |
 | Envoy | host:8888 | Listens for MCP clients, calls ext_proc, routes traffic |
@@ -264,7 +257,7 @@ the request directly to the upstream MCP server with the client's `Authorization
 
 ## Authentication flow
 
-The gateway advertises the MCP Auth Adapter as its authorization server via
+The gateway advertises the [MCP Auth Adapter](../README.md#mcp-auth-adapter) as its authorization server via
 `/.well-known/oauth-protected-resource`. MCP clients that follow the
 [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
 discover this automatically.
