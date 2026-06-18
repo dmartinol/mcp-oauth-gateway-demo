@@ -56,7 +56,7 @@ Before running `setup.sh`, source an SSO environment file from the **repo root**
 which Red Hat SSO instance to use:
 
 ```bash
-# Stage SSO (tokens not valid against console.redhat.com):
+# Stage SSO (Insights API returns 403 Preprod Lockdown — SSO testing only):
 source ../env.stage
 
 # Production Insights API:
@@ -194,6 +194,34 @@ curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .
 kubectl get mcpsr -n mcp-system
 # Expected: insights-mcp READY=True, TOOLS=<count>
 ```
+
+## Broker credentials
+
+The MCP Gateway **broker** (`mcp-gateway` deployment in `mcp-system`) needs a bearer token to
+connect to `insights-mcp` for **`tools/list`** (tool discovery and federation). This is separate
+from the token MCP clients use for **`tools/call`**.
+
+| | Broker credential | Client credential |
+|---|---|---|
+| **Used by** | `mcp-gateway` broker | MCP clients (Cursor, Claude Code, …) |
+| **Purpose** | Upstream `tools/list` during registration | Gateway access + `tools/call` to Insights |
+| **Stored in** | Kubernetes Secret `insights-mcp-token` | Obtained via OAuth at the gateway (AuthPolicy) |
+| **Wired via** | `MCPServerRegistration.spec.credentialRef` | Kuadrant AuthPolicy JWT validation |
+
+In this demo, `start-apps.sh` obtains the broker token interactively (`get-token.py` + browser
+login) and writes the Secret. The secret must carry the label `mcp.kuadrant.io/secret=true` and
+a `token` key (the default expected by `credentialRef`).
+
+This matches the documented Kuadrant MCP Gateway pattern for upstream server credentials. See:
+
+- [MCPServerRegistration CRD — `credentialRef`](https://docs.kuadrant.io/dev/mcp-gateway/docs/reference/mcpserverregistration/)
+- [MCP Server Configuration](https://docs.kuadrant.io/dev/mcp-gateway/docs/guides/register-mcp-servers/)
+- [Connecting to External MCP Servers](https://docs.kuadrant.io/dev/mcp-gateway/docs/guides/external-mcp-server/) (Step 4–5: Secret + `credentialRef`)
+- [MCP Gateway documentation](https://docs.kuadrant.io/mcp-gateway/)
+
+For production, replace the interactive login with a service-account token (client credentials or
+automated refresh) stored in a secrets manager — see the root
+[README](../README.md) for the deployment comparison.
 
 ## Broker token expiry
 

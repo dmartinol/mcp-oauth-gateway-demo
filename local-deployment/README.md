@@ -58,7 +58,7 @@ cd ../mcp-gateway && git checkout "v${MCP_GATEWAY_VERSION:-0.7.0}"
 Source an SSO environment file from the **repo root** to select which Red Hat SSO instance to use:
 
 ```bash
-# Stage SSO (tokens not valid against console.redhat.com):
+# Stage SSO (Insights API returns 403 Preprod Lockdown — SSO testing only):
 source ../env.stage
 
 # Production Insights API:
@@ -173,6 +173,33 @@ Expected: tools prefixed with `insights_` from the insights-mcp server.
 | `LOG_LEVEL` | `0` | No | `-4`=debug, `0`=info, `4`=warn, `8`=error |
 | `CALLBACK_PORT` | `9090` | No | Local port for OAuth browser callback |
 | `SKIP_CURSOR_CONFIG` | `0` | No | Set to `1` to skip updating `~/.cursor/mcp.json` in `start.sh` |
+
+## Broker credentials
+
+The standalone `mcp-broker-router` needs the same kind of **broker credential** as the Kind
+deployment: a bearer token the broker sends to `insights-mcp` when fetching tools for
+**`tools/list`**. It is **not** injected into client `tools/call` requests — those use the
+caller's `Authorization` header (forwarded by Envoy).
+
+| | Broker credential | Client credential |
+|---|---|---|
+| **Used by** | `mcp-broker-router` (broker side) | MCP client (e.g. Cursor) |
+| **Purpose** | Upstream `tools/list` | Client requests to the gateway and `tools/call` |
+| **Stored in** | `config.runtime.yaml` → `servers[].auth.token` | `~/.cursor/mcp.json` (or client OAuth) |
+| **Wired via** | `--mcp-gateway-config` | Manual Bearer header in this demo |
+
+`config.yaml` holds a placeholder (`INSIGHTS_MCP_TOKEN_PLACEHOLDER`); `start.sh` substitutes the
+real token after `get-token.py` runs. Unlike Kind, this demo **reuses the same OAuth token** for
+both broker and Cursor — a convenience because standalone mode has no AuthPolicy enforcing
+separate client auth.
+
+The `auth.token` field is the file-based equivalent of Kuadrant's `credentialRef` on
+`MCPServerRegistration`. See:
+
+- [MCPServerRegistration CRD — `credentialRef`](https://docs.kuadrant.io/dev/mcp-gateway/docs/reference/mcpserverregistration/)
+- [MCP Server Configuration](https://docs.kuadrant.io/dev/mcp-gateway/docs/guides/register-mcp-servers/)
+- [Connecting to External MCP Servers](https://docs.kuadrant.io/dev/mcp-gateway/docs/guides/external-mcp-server/) (Secret + `credentialRef` pattern on Kubernetes)
+- [MCP Gateway documentation](https://docs.kuadrant.io/mcp-gateway/)
 
 ## Configuration files
 

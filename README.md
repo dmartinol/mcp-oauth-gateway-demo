@@ -32,8 +32,11 @@ This repository explores two questions:
 
 | Environment | Auth flow | Insights API | Notes |
 |---|---|---|---|
-| **Stage** (`env.stage`) | ✅ OAuth via MCP Auth Adapter | ❌ stage tokens not accepted by `console.stage.redhat.com` | Use for SSO testing only |
-| **Production** (`env.prod`) | ✅ OAuth via MCP Auth Adapter | ✅ with `api.console api.ocm` scopes on `console.redhat.com` API | Use for real Insights inventory, CVEs, etc. |
+| **Stage** (`env.stage`) | ✅ OAuth via MCP Auth Adapter | ⚠️ JWT accepted; Insights API returns `403` **Preprod Lockdown: Access Denied** | SSO/gateway testing only — not usable for real Insights data |
+| **Production** (`env.prod`) | ✅ OAuth via MCP Auth Adapter | ✅ with `api.console api.ocm` scopes on `console.redhat.com` | Use for real Insights inventory, CVEs, etc. |
+
+On stage, OAuth and JWT validation succeed end-to-end; the failure is at the **Insights API** layer,
+which responds with `403` and an HTML **Preprod Lockdown: Access Denied** page instead of data.
 
 **Note**:
 Scripts default to stage SSO; use `source env.prod` for production environment.
@@ -84,7 +87,7 @@ Two env files configure which Red Hat SSO environment to use. **Source one befor
 
 | File | SSO | Use when |
 |---|---|---|
-| `env.stage` | `sso.stage.redhat.com` | Testing against stage SSO (not production Insights API) |
+| `env.stage` | `sso.stage.redhat.com` | SSO/gateway testing — stage Insights API responds with `403` Preprod Lockdown |
 | `env.prod` | `sso.redhat.com` | Production Insights API (`console.redhat.com`) |
 
 ### Usage
