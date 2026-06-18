@@ -3,7 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEMO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-MCP_GATEWAY_VERSION="${MCP_GATEWAY_VERSION:-0.6.1}"
+MCP_GATEWAY_VERSION="${MCP_GATEWAY_VERSION:-0.7.0}"
+ENVOY_IMAGE="${ENVOY_IMAGE:-docker.io/envoyproxy/envoy:v1.33-latest}"
 
 # mcp-broker-router is built from the Kuadrant/mcp-gateway source tree.
 # Clone it as a sibling of this demo repo, or set MCP_GATEWAY_ROOT explicitly.
@@ -23,6 +24,7 @@ fi
 # Implements DCR and proxies to Red Hat SSO. MCP clients register dynamically
 # and get a token via device flow without needing pre-issued credentials.
 MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.stage.api.redhat.com}"
+OAUTH_SCOPES_SUPPORTED="${OAUTH_SCOPES_SUPPORTED:-api.console,api.ocm,openid,offline_access}"
 
 # Log level: -4=debug, 0=info (default), 4=warn, 8=error
 LOG_LEVEL="${LOG_LEVEL:-0}"
@@ -30,11 +32,11 @@ LOG_LEVEL="${LOG_LEVEL:-0}"
 # Broker port — must differ from insights-mcp (default 8080)
 BROKER_PORT="${BROKER_PORT:-8081}"
 
-# Public host: what MCP clients connect to (Envoy listener)
-MCP_PUBLIC_HOST="${MCP_PUBLIC_HOST:-localhost:8888}"
-
-# Internal host: used by the router for hairpin initialize requests back through Envoy
-MCP_PRIVATE_HOST="${MCP_PRIVATE_HOST:-localhost:8888}"
+# Public host: what MCP clients connect to (Envoy listener). Use MCP_LISTEN_ADDR only —
+# do not inherit kind's MCP_PUBLIC_HOST (hostname without port).
+MCP_LISTEN_ADDR="${MCP_LISTEN_ADDR:-localhost:8888}"
+MCP_PUBLIC_HOST="${MCP_LISTEN_ADDR}"
+MCP_PRIVATE_HOST="${MCP_LISTEN_ADDR}"
 
 chmod +x "${SCRIPT_DIR}/get-token.sh"
 
@@ -48,6 +50,7 @@ echo "Token obtained."
 if [ "${SKIP_CURSOR_CONFIG:-0}" != "1" ]; then
   chmod +x "${SCRIPT_DIR}/cursor-config.sh"
   MCP_ACCESS_TOKEN="${BROKER_TOKEN}" MCP_AUTH_BASE="${MCP_AUTH_BASE}" \
+    MCP_URL="http://${MCP_LISTEN_ADDR}/mcp" \
     "${SCRIPT_DIR}/cursor-config.sh"
 fi
 
@@ -65,7 +68,7 @@ mcp-gateway source not found at: ${REPO_ROOT}
 Clone it next to this demo repo (or set MCP_GATEWAY_ROOT):
 
   git clone https://github.com/Kuadrant/mcp-gateway.git "${DEMO_ROOT}/../mcp-gateway"
-  cd "${DEMO_ROOT}/../mcp-gateway" && git checkout v${MCP_GATEWAY_VERSION}
+  cd "${DEMO_ROOT}/../mcp-gateway" && git checkout "v${MCP_GATEWAY_VERSION}"
 
 Then rerun ./start.sh
 EOF
@@ -87,7 +90,7 @@ podman run -d \
   --entrypoint="" \
   -p 8888:8888 \
   -v "${SCRIPT_DIR}/envoy.yaml:/etc/envoy/envoy.yaml:ro,z" \
-  docker.io/envoyproxy/envoy:v1.33-latest \
+  "${ENVOY_IMAGE}" \
   /usr/local/bin/envoy -c /etc/envoy/envoy.yaml --log-level warn
 
 echo "Envoy started (listener: :8888)"
@@ -103,7 +106,7 @@ echo "  config:       ${RUNTIME_CONFIG}"
 GATEWAY_SIGNING_KEY="${GATEWAY_SIGNING_KEY}" \
   OAUTH_RESOURCE="http://${MCP_PUBLIC_HOST}/mcp" \
   OAUTH_AUTHORIZATION_SERVERS="${MCP_AUTH_BASE}" \
-  OAUTH_SCOPES_SUPPORTED="openid,roles,id.roles,offline_access" \
+  OAUTH_SCOPES_SUPPORTED="${OAUTH_SCOPES_SUPPORTED}" \
   "${SCRIPT_DIR}/bin/mcp-broker-router" \
   --mcp-broker-public-address="0.0.0.0:${BROKER_PORT}" \
   --mcp-gateway-config="${RUNTIME_CONFIG}" \

@@ -50,6 +50,24 @@ MCP Client (Cursor)
 - Access to `quay.io/redhat-services-prod/insights-management-tenant/insights-mcp/red-hat-lightspeed-mcp`
   (log in with `podman login quay.io` if the image is not publicly accessible)
 
+## SSO environment
+
+Before running `setup.sh`, source an SSO environment file from the **repo root** to select
+which Red Hat SSO instance to use:
+
+```bash
+# Stage SSO (tokens not valid against console.redhat.com):
+source ../env.stage
+
+# Production Insights API:
+source ../env.prod
+```
+
+Both files export `MCP_AUTH_BASE`, `SSO_ISSUER_URL`, `OAUTH_SCOPES`, and `OAUTH_SCOPES_SUPPORTED`. The scripts read these
+as environment variables; if neither file is sourced the scripts fall back to their stage defaults.
+
+See the [root README](../README.md#sso-environment-config-files) for the full status table.
+
 ## Step 1: Run the setup script
 
 ```bash
@@ -77,56 +95,58 @@ Total time: approximately 10–15 minutes.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `MCP_GATEWAY_VERSION` | `0.6.1` | MCP Gateway Helm chart version |
+| `MCP_GATEWAY_VERSION` | `0.7.0` | MCP Gateway Helm chart version |
+| `MCP_GATEWAY_GIT_REF` | `v0.7.0` (`v${MCP_GATEWAY_VERSION}`) | Git ref for Kuadrant CR manifest from mcp-gateway repo |
+| `MCP_GATEWAY_EXTENSION_NAME` | `mcp-gateway-extension` | MCPGatewayExtension resource name (`mcp-gateway` on chart 0.6.x) |
+| `GATEWAY_API_VERSION` | `v1.5.1` | Gateway API CRDs release tag (`standard-install.yaml`) |
+| `ISTIO_VERSION` | `1.30.1` | Istio Helm chart version (`istio/base` and `istiod`) |
+| `KUADRANT_OPERATOR_VERSION` | `1.4.2` | Kuadrant operator Helm chart version |
 | `MCP_PUBLIC_HOST` | `localhost` | Public hostname Cursor connects to (must stay on HTTP for local OAuth) |
 | `MCP_PUBLIC_PORT` | `8001` | Host port for the Kind NodePort |
 | `MCP_AUTH_BASE` | `https://mcp-auth.stage.api.redhat.com` | MCP Auth Adapter base URL |
 | `SSO_ISSUER_URL` | `https://sso.stage.redhat.com/auth/realms/redhat-external` | SSO JWT issuer for AuthPolicy validation |
+| `OAUTH_SCOPES_SUPPORTED` | `api.console,api.ocm,openid,offline_access` | Scopes advertised in Protected Resource Metadata (PRM); see [root README](../README.md#oauth-scopes) |
 | `CLUSTER_NAME` | `kind` | Kind cluster name |
 | `CALLBACK_PORT` | `9090` | Local port for OAuth browser callback |
 
-### Configuring insights-mcp
+## Step 2: Configure MCP clients
 
-The insights-mcp container may need credentials to call upstream Red Hat Insights APIs.
-Override the chart values before running `setup.sh`:
+The gateway URL is always `http://localhost:8001/mcp` (HTTP only — no TLS on the Kind NodePort).
+Use `localhost`, not `mcp.127-0-0-1.sslip.io`; public-looking hostnames can trigger
+HTTPS upgrades in Chromium-based clients.
 
-```bash
-# Option A: pass values inline
-INSIGHTS_MCP_VALUES="--set env[0].name=OFFLINE_TOKEN --set env[0].value=<token>" ./setup.sh
+### Claude Code (recommended — OAuth works)
 
-# Option B: use a values file (recommended for multiple vars)
-cat > my-insights-values.yaml <<EOF
-env:
-  - name: OFFLINE_TOKEN
-    value: "<your-token>"
-EOF
-INSIGHTS_MCP_VALUES="-f my-insights-values.yaml" ./setup.sh
-```
-
-If the image requires a quay.io pull secret, create it first:
+From any project directory (or this repo's `local-deployment/`):
 
 ```bash
-kubectl create namespace mcp-system 2>/dev/null || true
-kubectl create secret docker-registry quay-pull-secret \
-  --docker-server=quay.io \
-  --docker-username=<username> \
-  --docker-password=<password> \
-  -n mcp-system
+claude mcp add mcp-gateway --transport http http://localhost:8001/mcp --scope project
 ```
 
-Then reference it in your values file:
+That writes a project-scoped entry to `.mcp.json`:
 
-```yaml
-imagePullSecrets:
-  - name: quay-pull-secret
+```json
+{
+  "mcpServers": {
+    "mcp-gateway": {
+      "type": "http",
+      "url": "http://localhost:8001/mcp"
+    }
+  }
+}
 ```
 
-> The exact environment variable names depend on the image. Check the image documentation
-> or inspect the running container with `kubectl exec -n mcp-system deploy/insights-mcp -- env`.
+In Claude Code, run `/mcp` to authenticate. You should see *Authentication successful.
+Reconnected to mcp-gateway.* — then Insights tools (e.g. `insights_inventory__list_hosts`)
+work against production (`console.redhat.com`) when using `env.prod`.
 
-## Step 2: Configure Cursor
+No pre-issued token or `cursor-config.sh` is required.
 
-Add the gateway URL to Cursor's MCP configuration (`~/.cursor/mcp.json`):
+<a id="cursor-known-limitation"></a>
+
+### Cursor (known limitation)
+
+Add the gateway to `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -138,15 +158,22 @@ Add the gateway URL to Cursor's MCP configuration (`~/.cursor/mcp.json`):
 }
 ```
 
-> Use `localhost`, not `mcp.127-0-0-1.sslip.io`. Cursor's Chromium stack may
-> HTTPS-upgrade public-looking hostnames before OAuth starts, which fails against
-> this HTTP-only gateway (`ERR_SSL_CLIENT_AUTH_CERT_NEEDED`) and never opens the
-> login browser.
-
-> **No token needed.** When Cursor connects and receives the `401 Unauthorized` response, it reads the
-> `WWW-Authenticate` header, discovers the authorization server at
-> `https://mcp-auth.stage.api.redhat.com`, performs DCR + Authorization Code + PKCE automatically,
-> and completes the Red Hat SSO login in a browser window.
+> **Cursor bug — HTTP streamable MCP OAuth on localhost:** On the same URL, Cursor's
+> streamableHttp client fails after the initial `401` with `net::ERR_SSL_CLIENT_AUTH_CERT_NEEDED`
+> (your logs: `MCP HTTP exchange completed` → `MCP HTTP exchange failed`). The gateway and PRM
+> are fine — Claude Code proves end-to-end OAuth works. Cursor never completes login.
+>
+> **Tracked issues (Cursor forum, 2026):** No ticket names this exact Chromium error string, but
+> Cursor staff have confirmed related bugs in the HTTP + OAuth path for localhost MCP:
+> [Remote MCP server on localhost fails](https://forum.cursor.com/t/remote-mcp-server-on-localhost-fails/157307)
+> (OAuth callback flow; fix claimed on Nightly, still reported broken),
+> [Cursor MCP finds tool but report and error (localhost)](https://forum.cursor.com/t/cursor-mcp-finds-tool-but-report-and-eror-localhost/148664),
+> [OAuth callback ERR_EMPTY_RESPONSE on localhost](https://forum.cursor.com/t/mcp-oauth-callback-returns-err-empty-response-localhost-callback-handler-sends-no-data/154519).
+> Staff workaround in those threads: Bearer header or stdio/`mcp-remote` bridge.
+>
+> **Workaround:** obtain a dynamic DCR token via the existing `get-token` flow and inject it
+> as a Bearer header (see [Troubleshooting](#cursor-shows-needsauth-or-err_ssl_client_auth_cert_needed) below), or
+> use Claude Code for OAuth against this gateway.
 
 Restart Cursor or reload MCP servers (**Settings → MCP → Refresh**) after editing `mcp.json`.
 
@@ -180,8 +207,9 @@ When this token expires (~5 minutes), tool discovery fails. Refresh it:
 This opens a browser for Red Hat SSO login, updates the Kubernetes Secret, and restarts the
 broker pod to reload credentials.
 
-> **Client tokens** (what Cursor uses for `tools/call`) are managed by Cursor itself and
-> refreshed automatically via the MCP auth flow.
+> **Client tokens** (what MCP clients use for `tools/call`) are obtained via the OAuth flow
+> described in Step 2. Claude Code manages refresh automatically; Cursor requires a
+> workaround today (see Troubleshooting).
 
 ## How authentication works (vs local-deployment)
 
@@ -190,8 +218,9 @@ broker pod to reload credentials.
 | Auth enforcement | None (broker passes everything) | Kuadrant AuthPolicy at Istio |
 | Client 401 | Only from insights-mcp (missing headers) | From gateway, before hitting broker |
 | WWW-Authenticate | Not set | Set by AuthPolicy with resource_metadata URL |
-| Cursor OAuth flow | Manual — requires `cursor-config.sh` | Automatic — Cursor discovers auth server from 401 |
-| Token refresh | Manual — rerun `cursor-config.sh` | Automatic — Cursor manages its own token lifecycle |
+| Claude Code OAuth | Manual Bearer via `cursor-config.sh` on `:8888` | Automatic on `:8001` via `/mcp` |
+| Cursor OAuth | Manual Bearer via `cursor-config.sh` | Broken — `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` (use Bearer workaround) |
+| Broker token refresh | Manual — rerun `cursor-config.sh` | ~5 min — run `./refresh-token.sh` |
 
 ## Manifests
 
@@ -205,12 +234,29 @@ broker pod to reload credentials.
 
 ## Troubleshooting
 
-### Cursor shows `needsAuth` but never opens a browser
+### Cursor shows `needsAuth` or `ERR_SSL_CLIENT_AUTH_CERT_NEEDED`
+
+**Confirmed:** The gateway and OAuth metadata are correct — the same
+`http://localhost:8001/mcp` URL works in **Claude Code** with native HTTP OAuth
+(`claude mcp add … --transport http`). The failure is Cursor-specific.
+
+See [tracked Cursor forum threads](#cursor-known-limitation) in Step 2 (localhost HTTP MCP OAuth;
+`ERR_SSL_CLIENT_AUTH_CERT_NEEDED` is the Chromium symptom, not a separate gateway misconfig).
 
 1. Confirm `~/.cursor/mcp.json` uses `http://localhost:8001/mcp` (not `sslip.io`).
-2. Reload MCP servers, then click **Needs authentication** under the server name (not Connect).
-3. Check **View → Output → MCP: mcp-gateway** for `MCP OAuth redirect to authorization`.
-4. Verify the discovery chain from a terminal:
+2. Check **View → Output → MCP: mcp-gateway** — if you see
+   `MCP HTTP exchange completed` followed by `ERR_SSL_CLIENT_AUTH_CERT_NEEDED`,
+   Cursor's streamableHttp client failed on the second hop (not the gateway).
+3. **Prefer Claude Code** for OAuth against this Kind deployment (see Step 2).
+4. **Cursor workaround** — dynamic DCR token as Bearer header:
+
+```bash
+source ../env.prod    # or ../env.stage
+./cursor-config.sh
+# Reload MCP servers in Cursor
+```
+
+5. Verify the discovery chain from a terminal:
 
 ```bash
 curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .
@@ -220,21 +266,71 @@ curl -sv http://localhost:8001/mcp \
 # Expected: resource_metadata=http://localhost:8001/.well-known/oauth-protected-resource
 ```
 
-If you see `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` in Cursor logs, the OAuth metadata URLs
-are still pointing at a public-looking hostname (`sslip.io`). Re-point the cluster
-and Cursor config at `localhost`:
-
-```bash
-./reconfigure-public-host.sh
-# then set url to http://localhost:8001/mcp in ~/.cursor/mcp.json and reload MCP
-```
+If you see `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` in Cursor logs, re-point the cluster
+at `localhost` if needed (`./reconfigure-public-host.sh`), then use the Bearer
+workaround above or switch to Claude Code — do not change the URL to a bridge IP.
 
 ### `kubectl wait` times out on MCPGatewayExtension
 
 ```bash
-kubectl describe mcpgatewayextension mcp-gateway -n mcp-system
+kubectl get mcpgatewayextension -n mcp-system
+kubectl describe mcpgatewayextension mcp-gateway-extension -n mcp-system
 kubectl logs -n mcp-system deployment/mcp-gateway-controller
 ```
+
+> Chart **0.7.0+** names the resource `mcp-gateway-extension` (0.6.x used `mcp-gateway`).
+> Override with `MCP_GATEWAY_EXTENSION_NAME` if your release differs.
+
+### Claude Code: `Got new credentials, but mcp-gateway rejected them on reconnect`
+
+OAuth succeeded but the gateway rejected the Bearer token. Common cause: **PRM and AuthPolicy
+point at different SSO environments** (e.g. `env.prod` for PRM but cluster still has stage
+issuer from an earlier `setup.sh`).
+
+Check:
+
+```bash
+kubectl get authpolicy mcp-auth -n gateway-system -o jsonpath='{.spec.defaults.rules.authentication.redhat-sso.jwt.issuerUrl}'; echo
+curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .authorization_servers
+```
+
+Both must match your sourced env file (`MCP_AUTH_BASE` in PRM, `SSO_ISSUER_URL` in AuthPolicy).
+
+Fix:
+
+```bash
+source ../env.prod   # or env.stage — use one file consistently
+./configure-oauth-metadata.sh
+```
+
+If you see `no matches for kind "AuthPolicy"`, Kuadrant is not installed — run `./setup.sh`
+first (or `./apply-authpolicy.sh` after setup completes).
+
+Then `/mcp` → **Authenticate** once more.
+
+Authorino logs (`kubectl logs -n kuadrant-system deployment/authorino --tail=20`) may show
+`failed to verify id token signature` or issuer mismatch when `SSO_ISSUER_URL` is wrong.
+
+### Claude Code / MCP client: `JSON Parse error: Unexpected identifier "Hello"`
+
+OAuth discovery failed because Protected Resource Metadata had empty `authorization_servers`.
+Chart **0.7.0+** owns the broker deployment — `kubectl set env` is reverted on reconcile.
+Re-apply PRM via `MCPGatewayExtension.spec.oauthProtectedResource`:
+
+```bash
+source ../env.prod   # or env.stage
+./configure-oauth-metadata.sh
+# or: ./reconfigure-public-host.sh
+```
+
+Verify:
+
+```bash
+curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .
+# authorization_servers must list your MCP_AUTH_BASE
+```
+
+Then retry **Authenticate** in Claude Code (`/mcp`).
 
 ### AuthPolicy not enforcing (no 401 returned)
 
@@ -257,8 +353,6 @@ Common causes:
   kubectl get pods -n mcp-system -l app.kubernetes.io/name=insights-mcp
   kubectl logs -n mcp-system deploy/insights-mcp
   ```
-- insights-mcp missing required env vars — inspect what the container exposes and set them
-  via a values file (see **Configuring insights-mcp** above)
 
 ### Host IP detection fails
 
@@ -327,24 +421,3 @@ kubectl create secret generic insights-mcp-token --from-literal=token="${TOKEN}"
 
 kubectl apply -f manifests/mcpserverregistration.yaml
 ```
-
-## Test Output: Token Comparison
-
-**Token comparison: `mcp-client` (Cursor) vs `ocm-cli`**
-
-All differences are JWT claims:
-
-- `scope`: Cursor gets `openid` only — `ocm-cli` gets `openid roles web-origins` (`web-origins` is a CORS scope and not relevant here; the key missing scope is `roles`)
-- `realm_access.roles`: absent in Cursor token — `ocm-cli` carries `redhat:employees`, `portal_manage_subscriptions`, `portal_system_management`, etc.
-- `account_number`: absent in Cursor token — `ocm-cli` has `***`
-- `org_id`: absent in Cursor token — `ocm-cli` has `***`
-- `is_active`: absent in Cursor token — `ocm-cli` has `true`
-- `preferred_username` / `email`: absent in Cursor token — `ocm-cli` has `***`
-- `aud`: absent in Cursor token — `ocm-cli` targets `ocm-cli` and `account`
-
-**Root cause:** `console.redhat.com` uses `account_number`, `org_id`, and `realm_access.roles` for
-RBAC enforcement. The `mcp-client` SSO client doesn't request the `roles` and `web-origins` scopes,
-so SSO strips those claims. The API receives a token it can't make an authorization decision on → 403.
-
-**Fix needed:** the `mcp-client` OAuth client in RH SSO needs `roles` added to its default scopes,
-and `account_number`/`org_id` protocol mappers configured if not already present.

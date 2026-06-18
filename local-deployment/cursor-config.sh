@@ -5,6 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.stage.api.redhat.com}"
+# Default: local Envoy on :8888. Kind uses kind/cursor-config.sh (sets MCP_URL for :8001).
 MCP_URL="${MCP_URL:-http://localhost:8888/mcp}"
 CURSOR_CONFIG="${HOME}/.cursor/mcp.json"
 
@@ -80,4 +81,5 @@ PYEOF
 fi
 
 echo "Written to ${CURSOR_CONFIG}" >&2
+echo "  url: ${MCP_URL}" >&2
 echo "Restart Cursor (or reload MCP servers) to pick up the new token." >&2

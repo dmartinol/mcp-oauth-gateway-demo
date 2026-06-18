@@ -4,7 +4,7 @@ metadata:
   name: insights-mcp
   namespace: mcp-system
 spec:
-  toolPrefix: "insights_"
+  prefix: "insights_"
   credentialRef:
     name: insights-mcp-token
   targetRef:

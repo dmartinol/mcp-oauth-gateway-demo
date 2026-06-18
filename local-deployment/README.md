@@ -45,7 +45,7 @@ of this demo repo (or set `MCP_GATEWAY_ROOT` to your checkout path):
 
 ```bash
 git clone https://github.com/Kuadrant/mcp-gateway.git ../mcp-gateway
-cd ../mcp-gateway && git checkout v0.6.1
+cd ../mcp-gateway && git checkout "v${MCP_GATEWAY_VERSION:-0.7.0}"
 ```
 
 > **Note:** `start.sh` previously assumed this demo lived inside the mcp-gateway tree.
@@ -53,24 +53,51 @@ cd ../mcp-gateway && git checkout v0.6.1
 
 ## Step 1: Set required environment variables
 
+### SSO environment
+
+Source an SSO environment file from the **repo root** to select which Red Hat SSO instance to use:
+
 ```bash
-# Stable JWT signing key — generate once and persist across restarts.
-# Changing it invalidates all active sessions.
+# Stage SSO (tokens not valid against console.redhat.com):
+source ../env.stage
+
+# Production Insights API:
+source ../env.prod
+```
+
+Both files export `MCP_AUTH_BASE`, `OAUTH_SCOPES`, and `OAUTH_SCOPES_SUPPORTED`. If neither is sourced, scripts fall back
+to their stage defaults.
+
+See the [root README](../README.md#sso-environment-config-files) for the full status table.
+
+### Kind gateway (optional — different stack)
+
+For the **Kind** deployment on `:8001`, use [kind/README.md](../kind/README.md). Claude Code:
+
+```bash
+claude mcp add mcp-gateway --transport http http://localhost:8001/mcp --scope project
+```
+
+Cursor against Kind: run `./cursor-config.sh` from the `kind/` directory (pins `:8001`).
+That is **not** the local Envoy stack below (`:8888`).
+
+### GATEWAY_SIGNING_KEY
+
+This is required by the broker-router. Generate it once and persist across restarts —
+changing it invalidates all active sessions.
+
+```bash
 export GATEWAY_SIGNING_KEY=$(openssl rand -hex 32)
 
-# MCP Auth Adapter — authorization server for the MCP ecosystem.
-# Implements DCR and proxies to Red Hat SSO.
-export MCP_AUTH_BASE=https://mcp-auth.stage.api.redhat.com
-
-# Persist to .env for subsequent sessions
+# Persist for subsequent sessions
 echo "export GATEWAY_SIGNING_KEY=${GATEWAY_SIGNING_KEY}" > .env
-echo "export MCP_AUTH_BASE=${MCP_AUTH_BASE}" >> .env
 ```
 
 ## Step 2: Start the gateway
 
 ```bash
-source .env
+source ../env.stage      # or ../env.prod
+source .env              # GATEWAY_SIGNING_KEY
 ./start.sh
 ```
 
@@ -83,6 +110,10 @@ source .env
 6. Start the broker-router on `:8081` (router on `:50051`)
 
 After it completes, restart Cursor or reload MCP servers (**Settings → MCP → Refresh**).
+
+> **Cursor URL:** `start.sh` always writes `http://localhost:8888/mcp` into `~/.cursor/mcp.json`
+> (via `MCP_LISTEN_ADDR`, ignoring kind's `MCP_PUBLIC_HOST` / stray `MCP_URL` in your shell).
+> For Kind, use `kind/cursor-config.sh` instead.
 
 > **Token expiry:** RH SSO access tokens expire in ~5 minutes. Rerun `./start.sh`
 > (or just `./cursor-config.sh` if the gateway is already running) and reload Cursor
@@ -134,9 +165,11 @@ Expected: tools prefixed with `insights_` from the insights-mcp server.
 | Variable | Default | Required | Purpose |
 |---|---|---|---|
 | `GATEWAY_SIGNING_KEY` | — | Yes | JWT session signing key (≥32 bytes) |
+| `MCP_GATEWAY_VERSION` | `0.7.0` | No | mcp-gateway git tag when building broker-router (`v${MCP_GATEWAY_VERSION}`) |
+| `ENVOY_IMAGE` | `docker.io/envoyproxy/envoy:v1.33-latest` | No | Envoy container image for the local proxy |
 | `MCP_AUTH_BASE` | `https://mcp-auth.stage.api.redhat.com` | No | MCP Auth Adapter base URL |
 | `BROKER_PORT` | `8081` | No | Broker HTTP port (must not conflict with insights-mcp) |
-| `MCP_PUBLIC_HOST` | `localhost:8888` | No | Hostname:port Envoy listens on |
+| `MCP_LISTEN_ADDR` | `localhost:8888` | No | Host:port Envoy listens on (local-deployment only) |
 | `LOG_LEVEL` | `0` | No | `-4`=debug, `0`=info, `4`=warn, `8`=error |
 | `CALLBACK_PORT` | `9090` | No | Local port for OAuth browser callback |
 | `SKIP_CURSOR_CONFIG` | `0` | No | Set to `1` to skip updating `~/.cursor/mcp.json` in `start.sh` |
@@ -222,7 +255,7 @@ compatible tag:
 
 ```bash
 git clone https://github.com/Kuadrant/mcp-gateway.git ../mcp-gateway
-cd ../mcp-gateway && git checkout v0.6.1
+cd ../mcp-gateway && git checkout "v${MCP_GATEWAY_VERSION:-0.7.0}"
 ```
 
 Or point to an existing checkout:

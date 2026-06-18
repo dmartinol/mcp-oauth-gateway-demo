@@ -60,8 +60,7 @@ def main():
         "--scope",
         default=os.environ.get(
             "OAUTH_SCOPES",
-            # Default works today; roles/id.roles require mcp-client optional scopes on stage SSO.
-            "openid offline_access id.roles",
+            "api.console api.ocm",
         ),
         help="Space-delimited OAuth scopes for the authorization request",
     )
@@ -121,12 +120,10 @@ def main():
         print(f"Authorization failed: {CallbackHandler.error}", file=sys.stderr)
         if "Invalid scopes" in (CallbackHandler.error or ""):
             print(
-                "\nStage mcp-client cannot issue tokens for the requested scopes yet.\n"
-                "Keycloak must assign optional client scopes (roles, id.roles) to mcp-client.\n"
-                "Until then, use the default: openid offline_access id.roles\n"
-                "  ./get-token.sh\n"
-                "After SSO is fixed, retry with:\n"
-                "  OAUTH_SCOPES='openid roles id.roles' ./get-token.sh\n",
+                "\nSSO rejected the requested scopes.\n"
+                "Source env.stage or env.prod from the repo root, or set OAUTH_SCOPES explicitly:\n"
+                "  source ../env.stage\n"
+                "  OAUTH_SCOPES='api.console api.ocm' ./get-token.sh\n",
                 file=sys.stderr,
             )
         sys.exit(1)
@@ -149,6 +146,12 @@ def main():
     if not access_token:
         print(f"Token exchange failed: {token}", file=sys.stderr)
         sys.exit(1)
+
+    response_path = os.path.join(os.path.dirname(__file__), "token-response.json")
+    with open(response_path, "w") as f:
+        json.dump(token, f, indent=2)
+        f.write("\n")
+    print(f"Token response written to {response_path}", file=sys.stderr)
 
     print("Authorized.", file=sys.stderr)
     print(access_token)  # stdout — captured by start.sh

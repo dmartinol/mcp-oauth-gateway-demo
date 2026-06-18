@@ -29,13 +29,11 @@ args:
   - "8080"
 
 # Environment variables passed to the container.
+# This demo relies on the client's Bearer token (forwarded by the gateway), not embedded API creds.
 env: []
 
-# Load all keys from one or more Secrets as environment variables.
-# Use this for credentials required to call Red Hat Insights APIs.
+# envFrom is unused in the default demo flow.
 envFrom: []
-# - secretRef:
-#     name: insights-mcp-credentials
 
 service:
   # Port the container listens on (must match --port arg above).

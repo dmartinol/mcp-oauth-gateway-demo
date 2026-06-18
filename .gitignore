@@ -27,3 +27,4 @@ charts/*/charts/
 
 # kubeconfig overrides
 kubeconfig
+**/.mcp.json

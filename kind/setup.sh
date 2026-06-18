@@ -9,11 +9,18 @@
 #   teardown.sh     — remove everything including the Kind cluster
 #
 # Env vars (all optional):
-#   MCP_GATEWAY_VERSION   Helm chart version (default: 0.6.1)
+#   MCP_GATEWAY_VERSION   Helm chart version (default: 0.7.0)
+#   MCP_GATEWAY_GIT_REF   mcp-gateway git ref for Kuadrant CR manifest (default: v${MCP_GATEWAY_VERSION})
+#   MCP_GATEWAY_EXTENSION_NAME  MCPGatewayExtension resource name (default: mcp-gateway-extension; was mcp-gateway in chart <0.7)
+#   GATEWAY_API_VERSION   Gateway API CRDs release tag (default: v1.5.1)
+#   ISTIO_VERSION         Istio Helm chart version for istio/base and istiod (default: 1.30.1)
+#   KUADRANT_OPERATOR_VERSION  Kuadrant operator Helm chart version (default: 1.4.2)
 #   MCP_PUBLIC_HOST       Hostname Cursor connects to (default: localhost)
 #   MCP_PUBLIC_PORT       NodePort mapped on the host (default: 8001)
 #   MCP_AUTH_BASE         Auth adapter base URL (default: https://mcp-auth.stage.api.redhat.com)
 #   SSO_ISSUER_URL        SSO JWT issuer for AuthPolicy (default: https://sso.stage.redhat.com/auth/realms/redhat-external)
+#   OAUTH_SCOPES          Scopes for broker token request (source env.stage or env.prod)
+#   OAUTH_SCOPES_SUPPORTED  Comma-separated scopes advertised in Protected Resource Metadata / PRM (source env.stage or env.prod)
 #   CLUSTER_NAME          Kind cluster name (default: kind)
 #   CALLBACK_PORT         Local OAuth callback port (default: 9090)
 #   INSIGHTS_MCP_VALUES   Extra Helm flags passed through to start-apps.sh
@@ -21,13 +28,19 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-MCP_GATEWAY_VERSION="${MCP_GATEWAY_VERSION:-0.6.1}"
+MCP_GATEWAY_VERSION="${MCP_GATEWAY_VERSION:-0.7.0}"
+MCP_GATEWAY_GIT_REF="${MCP_GATEWAY_GIT_REF:-v${MCP_GATEWAY_VERSION}}"
+MCP_GATEWAY_EXTENSION_NAME="${MCP_GATEWAY_EXTENSION_NAME:-mcp-gateway-extension}"
+GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.5.1}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.30.1}"
+KUADRANT_OPERATOR_VERSION="${KUADRANT_OPERATOR_VERSION:-1.4.2}"
 # Use localhost — not sslip.io. Chromium/Electron may HTTPS-upgrade public-looking
 # hostnames and fail with ERR_SSL_CLIENT_AUTH_CERT_NEEDED before OAuth can start.
 MCP_PUBLIC_HOST="${MCP_PUBLIC_HOST:-localhost}"
 MCP_PUBLIC_PORT="${MCP_PUBLIC_PORT:-8001}"
 MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.stage.api.redhat.com}"
 SSO_ISSUER_URL="${SSO_ISSUER_URL:-https://sso.stage.redhat.com/auth/realms/redhat-external}"
+OAUTH_SCOPES_SUPPORTED="${OAUTH_SCOPES_SUPPORTED:-api.console,api.ocm,openid,offline_access}"
 CLUSTER_NAME="${CLUSTER_NAME:-kind}"
 CALLBACK_PORT="${CALLBACK_PORT:-9090}"
 export KIND_EXPERIMENTAL_PROVIDER=podman
@@ -42,18 +55,20 @@ fi
 kubectl config use-context "kind-${CLUSTER_NAME}"
 
 # ── Step 2: Gateway API CRDs ───────────────────────────────────────────────────
-echo "==> Installing Gateway API CRDs..." >&2
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
+echo "==> Installing Gateway API CRDs (${GATEWAY_API_VERSION})..." >&2
+kubectl apply -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
 
 # ── Step 3: Istio ─────────────────────────────────────────────────────────────
-echo "==> Installing Istio..." >&2
+echo "==> Installing Istio (${ISTIO_VERSION})..." >&2
 helm repo add istio https://istio-release.storage.googleapis.com/charts 2>/dev/null || true
 helm repo update istio
 
 helm upgrade -i istio-base istio/base \
+  --version "${ISTIO_VERSION}" \
   -n istio-system --create-namespace --wait
 
 helm upgrade -i istiod istio/istiod \
+  --version "${ISTIO_VERSION}" \
   -n istio-system --wait
 
 # ── Step 4: MCP Gateway ────────────────────────────────────────────────────────
@@ -74,39 +89,29 @@ helm upgrade -i mcp-gateway oci://ghcr.io/kuadrant/charts/mcp-gateway \
   --wait
 
 echo "==> Waiting for MCPGatewayExtension to become ready..." >&2
-kubectl wait --for=condition=Ready mcpgatewayextension/mcp-gateway \
+kubectl wait --for=condition=Ready "mcpgatewayextension/${MCP_GATEWAY_EXTENSION_NAME}" \
   -n mcp-system --timeout=120s
 
 # ── Step 5: OAuth Protected Resource metadata ──────────────────────────────────
-# The released chart (0.6.x) doesn't support oauthProtectedResource in the CRD
-# yet — that field is in the local repo only. Instead, inject OAUTH_* env vars
-# directly onto the broker deployment; the broker reads them to populate the
-# /.well-known/oauth-protected-resource response. The controller uses strategic
-# merge when reconciling the deployment, so unknown env vars survive restarts.
-echo "==> Configuring OAuth Protected Resource metadata..." >&2
-kubectl set env deployment/mcp-gateway -n mcp-system \
-  OAUTH_RESOURCE_NAME="Red Hat MCP Gateway" \
-  OAUTH_RESOURCE="http://${MCP_PUBLIC_HOST}:${MCP_PUBLIC_PORT}/mcp" \
-  OAUTH_AUTHORIZATION_SERVERS="${MCP_AUTH_BASE}" \
-  OAUTH_BEARER_METHODS_SUPPORTED="header" \
-  OAUTH_SCOPES_SUPPORTED="openid,roles,id.roles,offline_access"
-
-kubectl rollout status deployment/mcp-gateway -n mcp-system --timeout=60s
+# Chart 0.7.0+ reconciles the broker deployment from MCPGatewayExtension; patch
+# spec.oauthProtectedResource so the controller injects OAUTH_* env vars.
+"${SCRIPT_DIR}/configure-oauth-metadata.sh"
 
 # ── Step 6: Kuadrant (AuthPolicy enforcement) ──────────────────────────────────
-echo "==> Installing Kuadrant operator..." >&2
+echo "==> Installing Kuadrant operator (${KUADRANT_OPERATOR_VERSION})..." >&2
 helm repo add kuadrant https://kuadrant.io/helm-charts 2>/dev/null || true
 helm repo update kuadrant
 
 helm upgrade -i kuadrant-operator kuadrant/kuadrant-operator \
+  --version "${KUADRANT_OPERATOR_VERSION}" \
   --namespace kuadrant-system \
   --create-namespace \
   --wait \
   --timeout=600s
 
-echo "==> Applying Kuadrant CR..." >&2
+echo "==> Applying Kuadrant CR (${MCP_GATEWAY_GIT_REF})..." >&2
 kubectl apply -n kuadrant-system \
-  -f https://raw.githubusercontent.com/Kuadrant/mcp-gateway/main/config/kuadrant/kuadrant.yaml
+  -f "https://raw.githubusercontent.com/Kuadrant/mcp-gateway/${MCP_GATEWAY_GIT_REF}/config/kuadrant/kuadrant.yaml"
 
 echo "==> Waiting for Kuadrant CR to be ready..." >&2
 kubectl wait --for=condition=Ready kuadrant/kuadrant \
@@ -119,11 +124,7 @@ kubectl wait --for=condition=available deployment/authorino \
 # ── Step 7: AuthPolicy ─────────────────────────────────────────────────────────
 # Enforces JWT validation at the Istio Gateway layer and emits the
 # WWW-Authenticate header that triggers Cursor's automatic OAuth flow.
-echo "==> Applying AuthPolicy (issuer: ${SSO_ISSUER_URL})..." >&2
-sed -e "s|https://sso.redhat.com/auth/realms/redhat-external|${SSO_ISSUER_URL}|" \
-    -e "s|__MCP_PUBLIC_HOST__|${MCP_PUBLIC_HOST}|g" \
-    -e "s|__MCP_PUBLIC_PORT__|${MCP_PUBLIC_PORT}|g" \
-  "${SCRIPT_DIR}/manifests/authpolicy.yaml" | kubectl apply -f -
+"${SCRIPT_DIR}/apply-authpolicy.sh"
 
 sed -e "s|__MCP_PUBLIC_HOST__|${MCP_PUBLIC_HOST}|g" \
   "${SCRIPT_DIR}/manifests/oauth-metadata-httproute.yaml" | kubectl apply -f -
