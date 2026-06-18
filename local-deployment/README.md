@@ -1,22 +1,38 @@
 # Local Deployment: MCP OAuth Gateway (with insights-mcp as example backend)
 
 This guide sets up MCP Gateway locally using the standalone binary with Podman-hosted Envoy,
-demonstrating the OAuth authorization flow via the [MCP Auth Proxy](https://gitlab.cee.redhat.com/lightforge/mcp-auth-proxy)
-(`https://mcp-auth.stage.api.redhat.com`) and Red Hat SSO.
+demonstrating the OAuth authorization flow via the [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter)
+and [Red Hat SSO](https://sso.redhat.com).
 
 `insights-mcp` is the example backend. Additional MCP servers can be registered by adding entries
 to `config.yaml` and corresponding clusters + virtual hosts to `envoy.yaml`.
 
 ## Overview
 
+The local stack runs on your machine (Envoy + broker-router + insights-mcp). **OAuth does not** —
+tokens come from the hosted [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter)
+(`MCP_AUTH_BASE`, e.g. `https://mcp-auth.stage.api.redhat.com`). It sits between MCP clients and
+Red Hat SSO and provides what a plain SSO realm does not expose directly to MCP tooling:
+
+- **OIDC discovery** — `/.well-known/openid-configuration` (authorize, token, registration endpoints)
+- **Dynamic Client Registration (DCR)** — clients register without a pre-provisioned OAuth app
+- **Authorization Code + PKCE** — browser login against Red Hat SSO, returning a JWT
+
+The broker advertises the adapter in **Protected Resource Metadata** (`/.well-known/oauth-protected-resource`).
+In this demo, `start.sh` also calls the adapter via `get-token.py` to obtain tokens for the broker
+and Cursor before the client connects. See [Authentication flow](#authentication-flow) for the full sequence.
+
 ```
 MCP Client (Cursor)
     │
-    ▼ :8888
- Envoy (podman)
-    │  ext_proc ──► Router (host :50051)
-    │
-    ├──► Broker (host :8081) ──► insights-mcp (host :8080/mcp)
+    │  OAuth (DCR + PKCE) ──────────────────────────────┐
+    │  Bearer token on MCP requests                      │
+    ▼ :8888                                              ▼
+ Envoy (podman)                              MCP Auth Adapter (hosted)
+    │  ext_proc ──► Router (host :50051)         DCR /authorize /token
+    │                                                    │
+    ├──► Broker (host :8081) ──► insights-mcp           └──► Red Hat SSO
+    │         (host :8080/mcp)
     │
     └──► insights-mcp (host :8080/mcp)   ← direct tools/call routing
 ```
@@ -25,10 +41,12 @@ MCP Client (Cursor)
 
 | Component | Address | Role |
 |---|---|---|
-| mcp-broker-router (broker) | host:8081 | Aggregates tools, serves MCP protocol |
+| [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter) | `MCP_AUTH_BASE` (external) | OAuth authorization server — DCR, PKCE, SSO proxy; issues JWTs for Insights |
+| mcp-broker-router (broker) | host:8081 | Aggregates tools, serves MCP protocol; advertises adapter in PRM |
 | mcp-broker-router (router) | host:50051 | gRPC ext_proc — parses requests, sets routing headers |
 | Envoy | host:8888 | Listens for MCP clients, calls ext_proc, routes traffic |
 | insights-mcp | host:8080 | Upstream MCP server (must be running separately) |
+| Red Hat SSO | `sso.stage.redhat.com` / `sso.redhat.com` | Identity provider behind the adapter (selected via `env.stage` / `env.prod`) |
 
 ## Prerequisites
 
