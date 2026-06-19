@@ -213,7 +213,7 @@ from the token MCP clients use for **`tools/call`**.
 | | Broker credential | Client credential |
 |---|---|---|
 | **Used by** | `mcp-gateway` broker | MCP clients (Cursor, Claude Code, …) |
-| **Purpose** | Upstream `tools/list` during registration | Gateway access + `tools/call` to Insights |
+| **Purpose** | Upstream `tools/list` during registration | Gateway access + `tools/call` to the upstream MCP server |
 | **Stored in** | Kubernetes Secret `insights-mcp-token` | Obtained via OAuth at the gateway (AuthPolicy) |
 | **Wired via** | `MCPServerRegistration.spec.credentialRef` | Kuadrant AuthPolicy JWT validation |
 

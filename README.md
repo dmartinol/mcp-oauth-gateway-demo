@@ -27,7 +27,7 @@ This repository explores two questions:
 
 2. **Can an MCP client call the Red Hat Insights API** using a token obtained through the MCP Auth
    Adapter? — Yes, with scopes `api.console api.ocm` on both stage and production. Verified
-   end-to-end via Claude Code. Requires an account with the appropriate RBAC roles assigned.
+   end-to-end via Claude Code.
 
 ## Current status
 
@@ -108,7 +108,7 @@ broker. On **local-deployment**, the gateway forwards the token and insights-mcp
 
 ## Deployments
 
-Two environments are provided, differing in where authentication is enforced:
+Two deployment options are provided, differing in where authentication is enforced:
 
 | Directory | Stack | Auth enforcement | Use case |
 |---|---|---|---|
@@ -155,10 +155,6 @@ Two env files configure which Red Hat SSO environment to use. **Source one befor
 | `env.stage` | `sso.stage.redhat.com` | Stage Insights API (`console.stage.redhat.com`) |
 | `env.prod` | `sso.redhat.com` | Production Insights API (`console.redhat.com`) |
 
-Both environments require the authenticated account to have the
-[RBAC roles required by each toolset](https://github.com/RedHatInsights/insights-mcp/tree/main#required-permissions-by-toolset)
-assigned in its organization — assign them via [User Access](https://console.redhat.com/iam/user-access/overview).
-
 ### Usage
 
 ```bash
@@ -188,7 +184,7 @@ The env files export these variables (all consumed by both deployment scripts):
 
 **Local (no Kubernetes):**
 ```bash
-source env.stage
+source env.prod   # or env.stage
 cd local-deployment
 export GATEWAY_SIGNING_KEY=$(openssl rand -hex 32)
 ./start.sh
@@ -196,7 +192,7 @@ export GATEWAY_SIGNING_KEY=$(openssl rand -hex 32)
 
 **Kind cluster (full auth):**
 ```bash
-source env.prod
+source env.prod   # or env.stage
 cd kind
 ./setup.sh
 ```
@@ -210,7 +206,7 @@ endpoint.
 
 Clients request `api.console api.ocm` (set in `env.stage` / `env.prod` as `OAUTH_SCOPES`). The
 gateway advertises the same API scopes in PRM (`OAUTH_SCOPES_SUPPORTED`). That is sufficient for the
-production Insights API — no extra OIDC client scopes are required in application config.
+Insights API on both environments — no extra OIDC client scopes are required in application config.
 
 Use `local-deployment/inspect-token.py` to inspect issued JWT claims when debugging.
 
@@ -245,18 +241,14 @@ image tag: `INSIGHTS_MCP_VALUES="--set image.tag=<tag>" ./setup.sh`.
 **MCP Gateway 0.7.0:** `MCPGatewayExtension` is named `mcp-gateway-extension`; use `prefix` (not
 `toolPrefix`) on `MCPServerRegistration`.
 
-## How the deployments differ
+## Operational quick reference
 
 | | `local-deployment` | `kind` |
 |---|---|---|
-| Auth enforcement | None — insights-mcp validates tokens | Kuadrant AuthPolicy at Istio Gateway |
-| Claude Code OAuth | Manual Bearer via `cursor-config.sh` (`:8888`) | Native HTTP OAuth (`:8001`) — works |
-| Cursor OAuth | Manual Bearer via `cursor-config.sh` | Broken in Cursor — use Bearer workaround or Claude Code |
-| Broker token expiry | ~5 min — restart `start.sh` | ~5 min — run `./refresh-token.sh` |
-| Teardown | `pkill` + `podman stop` | `./teardown.sh` |
-
-See [`kind/README.md`](kind/README.md#step-2-configure-mcp-clients) for Claude Code setup
-(`claude mcp add mcp-gateway --transport http http://localhost:8001/mcp --scope project`).
+| Claude Code | Manual Bearer via `cursor-config.sh` (`:8888`) | Native HTTP OAuth (`:8001`) — `claude mcp add mcp-gateway --transport http http://localhost:8001/mcp --scope project` |
+| Cursor | Manual Bearer via `cursor-config.sh` | Broken on localhost — use Bearer workaround or Claude Code |
+| Broker token expiry | ~5 min — rerun `start.sh` | ~5 min — run `./refresh-token.sh` |
+| Teardown | `pkill mcp-broker-router && podman stop mcp-envoy` | `./teardown.sh` |
 
 ## Related
 
