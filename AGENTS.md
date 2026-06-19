@@ -30,8 +30,9 @@ deployments with OAuth.
    Cursor has a known localhost OAuth bug — a Bearer workaround exists.
 
 2. **Can the resulting token call the Red Hat Insights API?**
-   → Yes, with `env.prod` and scopes `api.console api.ocm` on `console.redhat.com`.
-   Stage Insights returns `403 Preprod Lockdown` regardless of auth.
+   → Yes, with either `env.stage` or `env.prod` and scopes `api.console api.ocm`.
+   The account must have the [RBAC roles required by each toolset](https://github.com/RedHatInsights/insights-mcp/tree/main#required-permissions-by-toolset)
+   assigned in its organization.
 
 ## Directory structure
 
@@ -63,8 +64,8 @@ Two env files at the repo root control which Red Hat SSO instance is used. Alway
 before running any script:
 
 ```bash
-source env.prod    # production SSO + Insights API (recommended)
-source env.stage   # stage SSO only — Insights API returns 403 Preprod Lockdown
+source env.prod    # production SSO + Insights API
+source env.stage   # stage SSO + Insights API
 ```
 
 ## Scope for contributions / modifications

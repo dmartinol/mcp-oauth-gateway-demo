@@ -26,31 +26,21 @@ This repository explores two questions:
    completes this flow on `http://localhost:8001/mcp`; Cursor has a [known bug](kind/README.md#cursor-shows-needsauth-or-err_ssl_client_auth_cert_needed) on the same URL.
 
 2. **Can an MCP client call the Red Hat Insights API** using a token obtained through the MCP Auth
-   Adapter? — Yes, with production SSO (`env.prod`) and scopes `api.console api.ocm`. Verified
-   end-to-end via Claude Code against `console.redhat.com`.
+   Adapter? — Yes, with scopes `api.console api.ocm` on both stage and production. Verified
+   end-to-end via Claude Code. Requires an account with the appropriate RBAC roles assigned.
 
 ## Current status
 
 | Environment | Auth flow | Insights API | Notes |
 |---|---|---|---|
-| **Stage** (`env.stage`) | ✅ OAuth via MCP Auth Adapter | ⚠️ JWT accepted; Insights API returns `403` **Preprod Lockdown: Access Denied** | SSO/gateway testing only — not usable for real Insights data |
-| **Production** (`env.prod`) | ✅ OAuth via MCP Auth Adapter | ✅ with `api.console api.ocm` scopes on `console.redhat.com` | Use for real Insights inventory, CVEs, etc. |
+| **Stage** (`env.stage`) | ✅ OAuth via MCP Auth Adapter | ✅ with `api.console api.ocm` scopes on `console.stage.redhat.com` | |
+| **Production** (`env.prod`) | ✅ OAuth via MCP Auth Adapter | ✅ with `api.console api.ocm` scopes on `console.redhat.com` | |
 
-On stage, OAuth and JWT validation succeed end-to-end; Insights **data** calls still fail. For
-example, `insights_inventory__list_hosts` returns **403 Forbidden** from
-`console.stage.redhat.com/api/inventory/v1/hosts` — the stage **Preprod Lockdown** noted in the
-table above.
-
-### Account and RBAC limitations
-
-The same **403** after a successful OAuth login is also what you see when the account lacks
-[RBAC roles required by each toolset](https://github.com/RedHatInsights/insights-mcp/tree/main#required-permissions-by-toolset) (e.g. **Inventory Hosts viewer** for `list_hosts`). Our
-staging attempts confirmed auth works but data calls fail; the underlying blocker for this account
-is that it **cannot be linked to those roles** (no org admin privileges, no one to assign them).
-
-**Workaround:** use a different Red Hat account in an org where the required roles can be assigned
-via [User Access](https://console.redhat.com/iam/user-access/overview). Creating a new account on
-stage SSO is not viable — registration is unreliable and stage Insights APIs are locked down anyway.
+Both environments work end-to-end. The authenticated account must have the
+[RBAC roles required by each toolset](https://github.com/RedHatInsights/insights-mcp/tree/main#required-permissions-by-toolset)
+assigned in its organization (e.g. **Inventory Hosts viewer** for `insights_inventory__list_hosts`).
+This applies to both stage and production — assign roles via
+[User Access](https://console.redhat.com/iam/user-access/overview).
 
 ## MCP Auth Adapter
 
@@ -162,17 +152,21 @@ Two env files configure which Red Hat SSO environment to use. **Source one befor
 
 | File | SSO | Use when |
 |---|---|---|
-| `env.stage` | `sso.stage.redhat.com` | SSO/gateway testing — stage Insights API responds with `403` Preprod Lockdown |
+| `env.stage` | `sso.stage.redhat.com` | Stage Insights API (`console.stage.redhat.com`) |
 | `env.prod` | `sso.redhat.com` | Production Insights API (`console.redhat.com`) |
+
+Both environments require the authenticated account to have the
+[RBAC roles required by each toolset](https://github.com/RedHatInsights/insights-mcp/tree/main#required-permissions-by-toolset)
+assigned in its organization — assign them via [User Access](https://console.redhat.com/iam/user-access/overview).
 
 ### Usage
 
 ```bash
-# Production Insights (recommended):
+# Production Insights:
 source env.prod
 cd kind && ./setup.sh
 
-# Stage SSO only:
+# Stage Insights:
 source env.stage
 cd kind && ./setup.sh
 

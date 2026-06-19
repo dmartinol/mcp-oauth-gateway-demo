@@ -69,7 +69,7 @@ cd ../mcp-gateway && git checkout "v${MCP_GATEWAY_VERSION:-0.7.0}"
 Source an SSO environment file from the **repo root** to select which Red Hat SSO instance to use:
 
 ```bash
-# Stage SSO (Insights API returns 403 Preprod Lockdown — SSO testing only):
+# Stage Insights API:
 source ../env.stage
 
 # Production Insights API:

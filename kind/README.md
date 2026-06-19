@@ -65,7 +65,7 @@ Before running `setup.sh`, source an SSO environment file from the **repo root**
 which Red Hat SSO instance to use:
 
 ```bash
-# Stage SSO (Insights API returns 403 Preprod Lockdown — SSO testing only):
+# Stage Insights API:
 source ../env.stage
 
 # Production Insights API:
