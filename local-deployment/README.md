@@ -168,6 +168,7 @@ Expected: tools prefixed with `insights_` from the insights-mcp server.
 | Script | Purpose |
 |---|---|
 | `start.sh` | OAuth login, updates `~/.cursor/mcp.json`, builds binary, starts Envoy + broker-router |
+| `stop.sh` | Stops Envoy container and mcp-broker-router |
 | `get-token.sh` | Gets an access token via MCP Auth Adapter (OAuth2 + PKCE) |
 | `cursor-config.sh` | Gets a token and writes it into `~/.cursor/mcp.json` (without restarting the gateway) |
 
@@ -362,9 +363,10 @@ lsof -i :8888   # envoy
 ## Stopping
 
 ```bash
-podman stop mcp-envoy && podman rm mcp-envoy
-pkill -f mcp-broker-router
+./stop.sh
 ```
+
+Stops the `mcp-envoy` Podman container and the `mcp-broker-router` process. Safe to rerun when nothing is running.
 
 ## Limitations of standalone mode
 
