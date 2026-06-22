@@ -1,0 +1,19 @@
+# Apply with: envsubst < manifests/authpolicy.yaml | kubectl apply -f -
+# Requires: SSO_ISSUER_URL (from env.stage or env.prod)
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: mcp-jwt-auth
+  namespace: mcp-gateway-system
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+  rules:
+    authentication:
+      jwt:
+        credentials:
+          authorizationHeader: {}
+        jwt:
+          issuerUrl: ${SSO_ISSUER_URL}

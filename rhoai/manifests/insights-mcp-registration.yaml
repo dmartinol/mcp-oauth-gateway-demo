@@ -1,0 +1,29 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: insights-mcp-route
+  namespace: mcp-gateway-demo
+spec:
+  parentRefs:
+    - name: mcp-gateway
+      namespace: mcp-gateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: insights-mcp
+          port: 8080
+---
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: insights-mcp
+  namespace: mcp-gateway-demo
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: insights-mcp-route
+  prefix: insights_
