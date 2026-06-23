@@ -452,6 +452,9 @@ your client URL, then verify:
 curl -sS "${MCP_PRM_URL:-https://your-host/.well-known/oauth-protected-resource}" | jq .resource
 ```
 
+On RHOAI the same PRM alignment applies, but the public URL comes from the OpenShift Route
+instead of ngrok — see [rhoai/README — OAuth discovery notes](../rhoai/README.md#oauth-discovery-notes).
+
 ## Stopping
 
 ```bash

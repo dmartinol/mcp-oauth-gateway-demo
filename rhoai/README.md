@@ -189,17 +189,69 @@ Patches the `MCPGatewayExtension` so the broker advertises the MCP Auth Adapter 
 
 Requires `MCP_AUTH_BASE` and `OAUTH_SCOPES_SUPPORTED` from your sourced env file.
 
+Run this **after** the Route exists (step 8) so the script can read the public hostname. The
+`resource` field in PRM must match the MCP client URL exactly (e.g. `https://<route-host>/mcp`).
+See [OAuth discovery notes](#oauth-discovery-notes) for how this compares to `kind/`.
+
 ## 10. Verify
 
 ```bash
 GATEWAY_URL=$(oc get route mcp-gateway -n mcp-gateway-system -o jsonpath='{.spec.host}')
 
-# OAuth discovery — should list the MCP Auth Adapter
+# OAuth discovery — should list the MCP Auth Adapter; resource must match https://$GATEWAY_URL/mcp
 curl -s https://$GATEWAY_URL/.well-known/oauth-protected-resource | jq .
 
-# MCP endpoint without token — should return 401 + WWW-Authenticate
+# MCP endpoint without token — should return 401 (JWT required)
 curl -i https://$GATEWAY_URL/mcp
 ```
+
+---
+
+## OAuth discovery notes
+
+This deployment configures **Protected Resource Metadata (PRM)** on `MCPGatewayExtension` via
+`configure-oauth-metadata.sh`. That is the piece MCP HTTP clients need most: PRM advertises the
+protected `resource` URL and the MCP Auth Adapter as `authorization_servers`.
+
+### Comparison with `kind/`
+
+| | RHOAI (this guide) | `kind/` |
+|---|---|---|
+| Public URL | OpenShift Route hostname (HTTPS) | `localhost:8001` or `MCP_PUBLIC_URL` (e.g. ngrok) |
+| PRM `resource` | Set from Route in `configure-oauth-metadata.sh` | Set via `configure-oauth-metadata.sh` / `reconfigure-public-host.sh` |
+| Tunnel / ngrok | Not needed | See [kind/README — Exposing via ngrok](../kind/README.md#exposing-via-ngrok-https) |
+| `WWW-Authenticate` on 401 | Not configured in `manifests/authpolicy.yaml` | Configured — points clients at PRM (`resource_metadata=...`) |
+| PRM path unauthenticated | Not explicitly excluded in AuthPolicy (verify — see below) | AuthPolicy skips `/.well-known` paths |
+
+If the Route hostname changes, re-run `./configure-oauth-metadata.sh` — there is no
+`reconfigure-public-host.sh` equivalent here; the Route host is the source of truth.
+
+### What each client type needs
+
+| Client | PRM `resource` correct? | `WWW-Authenticate` on 401? |
+|---|---|---|
+| **Cursor** / **Claude Code** (HTTP OAuth) | **Required** — client URL must match PRM `resource` | Helpful; clients also fetch `/.well-known/oauth-protected-resource` directly |
+| **Bearer workaround** (manual token in `mcp.json`) | No | No |
+| **Manual OAuth UIs** (e.g. Auth URL + Token URL only) | Partial — uses adapter OIDC endpoints, not PRM | No |
+
+PRM alignment is what fixed the ngrok mismatch on `kind/` (`Protected resource … does not match
+expected …`). On RHOAI, step 9 handles that automatically from the Route — no `MCP_PUBLIC_URL`
+needed for a normal install.
+
+### Verify PRM is reachable without a token
+
+Unlike `kind/manifests/authpolicy.yaml`, the RHOAI AuthPolicy does not yet exclude
+`/.well-known` from JWT enforcement. Confirm discovery works before testing OAuth clients:
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}\n" https://$GATEWAY_URL/.well-known/oauth-protected-resource
+# Expect 200 — if 401, PRM is behind AuthPolicy and HTTP OAuth clients may fail discovery
+```
+
+The `WWW-Authenticate` header on `POST /mcp` without a token is **optional** for Cursor and
+Claude Code when PRM is public and `resource` matches the client URL. It is **not** used by
+Bearer-token or manual-OAuth clients. The `kind/` deployment includes it for spec completeness;
+this guide does not configure it in manifests by design (minimal demo scope).
 
 ---
 
@@ -230,6 +282,9 @@ Unlike the `kind/` deployment (HTTP + localhost), the RHOAI gateway uses HTTPS o
 
 Reload via **Settings → MCP → Refresh**.
 
+For OAuth discovery behaviour (PRM, `WWW-Authenticate`, differences from `kind/`), see
+[OAuth discovery notes](#oauth-discovery-notes) in the RHOAI guide.
+
 If Cursor still fails OAuth, fall back to a Bearer token:
 
 ```bash
@@ -255,12 +310,13 @@ Then inject it in `~/.cursor/mcp.json`:
 ## Troubleshooting
 
 
-| Symptom                      | Check                                                                                                   |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------- |
-| MCPServer stays Pending      | `kubectl describe mcpserver insights-mcp -n mcp-gateway-demo` — image pull secret or wrong port         |
-| 401 with no WWW-Authenticate | MCPGatewayExtension not reconciled — `kubectl logs -n mcp-gateway-system deploy/mcp-gateway-controller` |
-| 404 at /mcp                  | `kubectl get mcpserverregistration insights-mcp -n mcp-gateway-demo -o yaml`                            |
-| AuthPolicy not enforcing     | `oc get pods -n kuadrant-system` — Authorino running?                                                   |
+| Symptom | Check |
+| --- | --- |
+| MCPServer stays Pending | `kubectl describe mcpserver insights-mcp -n mcp-gateway-demo` — image pull secret or wrong port |
+| Protected resource mismatch (Cursor) | PRM `resource` must equal client URL — re-run `./configure-oauth-metadata.sh` after Route changes; see [OAuth discovery notes](#oauth-discovery-notes) |
+| PRM returns 401 | AuthPolicy may be enforcing JWT on `/.well-known` — see [OAuth discovery notes](#oauth-discovery-notes) |
+| 404 at /mcp | `kubectl get mcpserverregistration insights-mcp -n mcp-gateway-demo -o yaml` |
+| AuthPolicy not enforcing | `oc get pods -n kuadrant-system` — Authorino running? |
 
 
 ---
