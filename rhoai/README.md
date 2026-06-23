@@ -1,6 +1,17 @@
 # MCP OAuth Gateway Demo — Red Hat OpenShift AI
 
-This guide sets up the MCP OAuth gateway experiment on a Red Hat OpenShift AI (RHOAI) cluster. The architecture mirrors the `[kind/](../kind/)` deployment: Istio gateway, Kuadrant AuthPolicy for JWT enforcement, MCP Gateway broker/router, and an MCP server deployed via the MCP Lifecycle Operator.
+This guide sets up the **MCP OAuth Gateway Demo** on a Red Hat OpenShift AI (RHOAI) cluster. The architecture mirrors the `[kind/](../kind/)` deployment: Istio gateway, Kuadrant AuthPolicy for JWT enforcement, [MCP Gateway](https://github.com/Kuadrant/mcp-gateway) broker/router, and an MCP server deployed via the MCP Lifecycle Operator.
+
+### MCP OAuth Gateway Demo vs MCP Gateway
+
+These are **not** two different gateway products:
+
+| Name | What it is |
+|------|------------|
+| **MCP Gateway** | Kuadrant / [Red Hat Connectivity Link](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/) product — broker, router, `MCPServerRegistration` / `MCPGatewayExtension` CRDs, and controller |
+| **MCP OAuth Gateway Demo** (this repo) | A proof-of-concept layered on MCP Gateway — OAuth discovery (PRM), DCR + PKCE via the external [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter), and JWT enforcement with Kuadrant `AuthPolicy` |
+
+This guide deploys **application manifests** (`insights-mcp`, `MCPServerRegistration`, `AuthPolicy`, OAuth metadata) on top of an existing MCP Gateway installation. It does **not** ship a separate gateway implementation.
 
 ```
 rhoai/
@@ -28,7 +39,9 @@ rhoai/
 | `envsubst`              | Usually bundled with `gettext`; `brew install gettext` on macOS |
 
 
-**RHOAI 3.4+ note:** Red Hat Connectivity Link (Kuadrant) is included for Models-as-a-Service use cases. If MaaS is already enabled on your cluster, skip steps 2 and 3 and go to [step 4](#4-install-mcp-gateway-crds-and-controller).
+**RHOAI 3.4+ note:** Red Hat Connectivity Link (Kuadrant) is included for Models-as-a-Service use cases. If MaaS is already enabled, skip [step 2](#2-install-kuadrant-operator). If the **MCP Gateway operator** is already installed (OperatorHub / OLM), skip [step 3](#3-install-mcp-gateway) and go to [step 4](#4-install-mcp-lifecycle-operator).
+
+> **Do not run step 3's manual install if MCP Gateway is already on the cluster.** A second controller (raw `kubectl apply -k` from upstream `main` alongside the OLM operator) will fight over the same CRDs and `MCPGatewayExtension` resources. Only one MCP Gateway controller should be installed.
 
 Select your SSO environment before running any command:
 
@@ -75,9 +88,29 @@ oc apply -f manifests/kuadrant.yaml
 oc get pods -n kuadrant-system   # wait for Limitador + Authorino to be Running
 ```
 
-## 3. Install MCP Gateway CRDs and Controller
+## 3. Install MCP Gateway
 
-The [Kuadrant MCP Gateway](https://github.com/Kuadrant/mcp-gateway) provides `MCPServerRegistration` and `MCPGatewayExtension` CRDs plus the broker/router/controller.
+Skip this step if MCP Gateway is already installed. Check first:
+
+```bash
+oc get csv -A | grep mcp-gateway          # OLM install
+oc get crds | grep mcp.kuadrant.io      # CRDs present
+```
+
+### Path A — OLM / OperatorHub (recommended on OpenShift / RHOAI)
+
+Install via Operator Lifecycle Manager as documented in [Installing the MCP gateway with OLM](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.4/html/installing_the_mcp_gateway/mcp-gateway-install#proc-mcp-gateway-install-olm_command) (Red Hat Connectivity Link). Then:
+
+1. Create a `Gateway` with listeners ([step 1.2](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.4/html/installing_the_mcp_gateway/mcp-gateway-install#proc-creating-a-gateway-object-for-your-mcp-gateway)).
+2. Create an `MCPGatewayExtension` targeting that Gateway ([step 1.5](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.4/html/installing_the_mcp_gateway/mcp-gateway-install#proc-applying-the-mcpgatewayextension-custom-resource)).
+
+This demo assumes the Gateway is named `mcp-gateway` in namespace `mcp-gateway-system`. If your OLM install uses different names, update `manifests/authpolicy.yaml`, `manifests/insights-mcp-registration.yaml`, and the `MCP_GATEWAY_NAMESPACE` / route commands in later steps.
+
+For OAuth, you may need `spec.httpRouteManagement: Disabled` on `MCPGatewayExtension` and a custom `HTTPRoute` (see Connectivity Link release notes for your operator version). The demo's `insights-mcp-registration.yaml` already defines its own `HTTPRoute`.
+
+### Path B — Manual install (clusters without the operator only)
+
+Upstream Kuadrant install bundle — **not** for clusters that already have the MCP Gateway operator:
 
 ```bash
 kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
@@ -91,6 +124,8 @@ kubectl get crds | grep mcp.kuadrant.io
 # Expected: mcpserverregistrations.mcp.kuadrant.io
 #           mcpgatewayextensions.mcp.kuadrant.io
 ```
+
+The `kind/` deployment uses a **pinned Helm chart** (`oci://ghcr.io/kuadrant/charts/mcp-gateway` at `0.7.0`) instead — closer to a reproducible release than `ref=main`.
 
 ## 4. Install MCP Lifecycle Operator
 
@@ -232,6 +267,7 @@ Then inject it in `~/.cursor/mcp.json`:
 
 ## References
 
+- [Installing the MCP gateway (Red Hat Connectivity Link / OLM)](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.4/html/installing_the_mcp_gateway/mcp-gateway-install)
 - [Kuadrant MCP Gateway](https://github.com/Kuadrant/mcp-gateway)
 - [MCP Lifecycle Operator](https://mcp-lifecycle-operator.sigs.k8s.io/)
 - [Red Hat blog: MCP Lifecycle Operator on OpenShift](https://www.redhat.com/en/blog/manage-mcp-servers-red-hat-openshift-mcp-lifecycle-operator)
