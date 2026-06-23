@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
-# Cursor Bearer workaround for the Kind gateway (:8001).
-# Pins MCP_URL so kind MCP_PUBLIC_HOST (hostname only) is not confused with local-deployment.
+# Cursor Bearer workaround for the Kind gateway (:8001 or MCP_PUBLIC_URL).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=public-url.sh
+source "${SCRIPT_DIR}/public-url.sh"
 
-MCP_PUBLIC_HOST="${MCP_PUBLIC_HOST:-localhost}"
-MCP_PUBLIC_PORT="${MCP_PUBLIC_PORT:-8001}"
-
-exec env MCP_URL="http://${MCP_PUBLIC_HOST}:${MCP_PUBLIC_PORT}/mcp" \
+exec env MCP_URL="${MCP_RESOURCE_URL}" \
   "${SCRIPT_DIR}/../local-deployment/cursor-config.sh" "$@"

@@ -24,7 +24,5 @@ venv/
 # Helm
 *.tgz
 charts/*/charts/
-
-# kubeconfig overrides
-kubeconfig
 **/.mcp.json
+.claude/*

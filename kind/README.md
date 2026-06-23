@@ -112,6 +112,7 @@ Total time: approximately 10–15 minutes.
 | `KUADRANT_OPERATOR_VERSION` | `1.4.2` | Kuadrant operator Helm chart version |
 | `MCP_PUBLIC_HOST` | `localhost` | Public hostname Cursor connects to (must stay on HTTP for local OAuth) |
 | `MCP_PUBLIC_PORT` | `8001` | Host port for the Kind NodePort |
+| `MCP_PUBLIC_URL` | — | Full MCP URL; overrides host/port — e.g. `https://xyz.ngrok-free.app/mcp` |
 | `MCP_AUTH_BASE` | `https://mcp-auth.stage.api.redhat.com` | MCP Auth Adapter base URL |
 | `SSO_ISSUER_URL` | `https://sso.stage.redhat.com/auth/realms/redhat-external` | SSO JWT issuer for AuthPolicy validation |
 | `OAUTH_SCOPES_SUPPORTED` | `api.console,api.ocm,openid,offline_access` | Scopes advertised in Protected Resource Metadata (PRM); see [root README](../README.md#oauth-scopes) |
@@ -407,6 +408,49 @@ sed "s/HOST_IP_PLACEHOLDER/${HOST_IP}/g" manifests/insights-mcp-service.yaml | k
 
 Change `MCP_PUBLIC_PORT` and update the Kind cluster's `extraPortMappings` in `cluster.yaml`
 to use a different `hostPort` before creating the cluster.
+
+### Exposing via ngrok (HTTPS)
+
+Cursor compares the MCP client URL against the `resource` field in Protected Resource Metadata
+(PRM). If you tunnel the gateway, PRM must advertise the **same** URL Cursor uses — not
+`http://localhost:8001/mcp`.
+
+Kind listens on **port 8001** (not 8081 — that is `local-deployment/` only):
+
+```bash
+ngrok http 8001
+```
+
+Re-point OAuth metadata to the ngrok URL (replace with your hostname):
+
+```bash
+source ../env.stage   # or ../env.prod
+export MCP_PUBLIC_URL=https://ffe2-212-171-132-9.ngrok-free.app/mcp
+./reconfigure-public-host.sh
+```
+
+Set `~/.cursor/mcp.json` to the same URL, then reload MCP in Cursor.
+
+If OAuth still fails through the tunnel, use the Bearer workaround:
+
+```bash
+MCP_PUBLIC_URL=https://ffe2-212-171-132-9.ngrok-free.app/mcp ./cursor-config.sh
+```
+
+### Protected resource does not match expected URL
+
+Symptom in Cursor logs:
+
+```text
+Protected resource http://localhost:8001/mcp does not match expected https://<your-host>/mcp
+```
+
+PRM still points at localhost. Run `./reconfigure-public-host.sh` with `MCP_PUBLIC_URL` set to
+your client URL, then verify:
+
+```bash
+curl -sS "${MCP_PRM_URL:-https://your-host/.well-known/oauth-protected-resource}" | jq .resource
+```
 
 ## Stopping
 

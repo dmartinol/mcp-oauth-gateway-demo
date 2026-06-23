@@ -17,6 +17,7 @@
 #   KUADRANT_OPERATOR_VERSION  Kuadrant operator Helm chart version (default: 1.4.2)
 #   MCP_PUBLIC_HOST       Hostname Cursor connects to (default: localhost)
 #   MCP_PUBLIC_PORT       NodePort mapped on the host (default: 8001)
+#   MCP_PUBLIC_URL        Full MCP URL — overrides host/port, e.g. https://xyz.ngrok-free.app/mcp
 #   MCP_AUTH_BASE         Auth adapter base URL (default: https://mcp-auth.stage.api.redhat.com)
 #   SSO_ISSUER_URL        SSO JWT issuer for AuthPolicy (default: https://sso.stage.redhat.com/auth/realms/redhat-external)
 #   OAUTH_SCOPES          Scopes for broker token request (source env.stage or env.prod)
@@ -38,6 +39,8 @@ KUADRANT_OPERATOR_VERSION="${KUADRANT_OPERATOR_VERSION:-1.4.2}"
 # hostnames and fail with ERR_SSL_CLIENT_AUTH_CERT_NEEDED before OAuth can start.
 MCP_PUBLIC_HOST="${MCP_PUBLIC_HOST:-localhost}"
 MCP_PUBLIC_PORT="${MCP_PUBLIC_PORT:-8001}"
+# shellcheck source=public-url.sh
+source "${SCRIPT_DIR}/public-url.sh"
 MCP_AUTH_BASE="${MCP_AUTH_BASE:-https://mcp-auth.stage.api.redhat.com}"
 SSO_ISSUER_URL="${SSO_ISSUER_URL:-https://sso.stage.redhat.com/auth/realms/redhat-external}"
 OAUTH_SCOPES_SUPPORTED="${OAUTH_SCOPES_SUPPORTED:-api.console,api.ocm,openid,offline_access}"
@@ -139,11 +142,11 @@ export MCP_AUTH_BASE CALLBACK_PORT
 echo "" >&2
 echo "Setup complete." >&2
 echo "" >&2
-echo "  Gateway:   http://${MCP_PUBLIC_HOST}:${MCP_PUBLIC_PORT}/mcp" >&2
-echo "  Discovery: http://${MCP_PUBLIC_HOST}:${MCP_PUBLIC_PORT}/.well-known/oauth-protected-resource" >&2
+echo "  Gateway:   ${MCP_RESOURCE_URL}" >&2
+echo "  Discovery: ${MCP_PRM_URL}" >&2
 echo "" >&2
 echo "Configure Cursor:" >&2
-echo '  {"mcpServers":{"mcp-gateway":{"url":"http://'"${MCP_PUBLIC_HOST}"':'"${MCP_PUBLIC_PORT}"'/mcp"}}}' >&2
+echo '  {"mcpServers":{"mcp-gateway":{"url":"'"${MCP_RESOURCE_URL}"'"}}}' >&2
 echo "" >&2
 echo "Cursor will discover the authorization server automatically and prompt for login." >&2
 echo "When the broker token expires (~5 min), run: ./refresh-token.sh" >&2

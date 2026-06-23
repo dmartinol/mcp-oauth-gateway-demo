@@ -4,7 +4,7 @@
 set -euo pipefail
 
 MCP_GATEWAY_EXTENSION_NAME="${MCP_GATEWAY_EXTENSION_NAME:-mcp-gateway-extension}"
-MCP_GATEWAY_NAMESPACE="${MCP_GATEWAY_NAMESPACE:-mcp-system}"
+MCP_GATEWAY_NAMESPACE="${MCP_GATEWAY_NAMESPACE:-mcp-gateway-system}"
 MCP_AUTH_BASE="${MCP_AUTH_BASE:?Run: source ../env.stage  (or ../env.prod)}"
 OAUTH_SCOPES_SUPPORTED="${OAUTH_SCOPES_SUPPORTED:-api.console,api.ocm,openid,offline_access}"
 

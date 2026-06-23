@@ -22,7 +22,7 @@ spec:
           code: 401
           headers:
             WWW-Authenticate:
-              value: Bearer resource_metadata=http://__MCP_PUBLIC_HOST__:__MCP_PUBLIC_PORT__/.well-known/oauth-protected-resource
+              value: Bearer resource_metadata=__MCP_PRM_URL__
           body:
             value: |
               {"error":"Unauthorized","message":"Authentication required."}
