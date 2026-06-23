@@ -268,7 +268,9 @@ Then run `/mcp` inside Claude Code to trigger the OAuth flow (DCR + PKCE handled
 
 ### Cursor
 
-Unlike the `kind/` deployment (HTTP + localhost), the RHOAI gateway uses HTTPS on a real hostname, which avoids Cursor's known `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` OAuth bug. Add to `~/.cursor/mcp.json`:
+Unlike the `kind/` deployment (HTTP + localhost), the RHOAI gateway uses HTTPS on a real
+OpenShift Route hostname — no ngrok tunnel or `MCP_PUBLIC_URL` reconfiguration needed. Add to
+`~/.cursor/mcp.json`:
 
 ```json
 {

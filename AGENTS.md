@@ -26,8 +26,9 @@ deployments with OAuth.
 ## Two questions this demo answers
 
 1. **Can an MCP client authenticate automatically** via DCR + PKCE against a secured gateway?
-   → Yes. The `kind/` deployment proves this with Claude Code (`http://localhost:8001/mcp`).
-   Cursor has a known localhost OAuth bug — a Bearer workaround exists.
+   → Yes. The `kind/` deployment proves this with Claude Code and Cursor on
+   `http://localhost:8001/mcp` when PRM `resource` matches the client URL. A Bearer workaround
+   (`cursor-config.sh`) remains for intermittent Cursor OAuth failures.
 
 2. **Can the resulting token call the Red Hat Insights API?**
    → Yes, with either `env.stage` or `env.prod` and scopes `api.console api.ocm`.

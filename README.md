@@ -7,8 +7,8 @@ The gateway infrastructure is provided by [MCP Gateway](https://github.com/Kuadr
 Authentication is handled by the hosted [MCP Auth Adapter](https://github.com/velias/mcp-auth-adapter)
 (see [MCP Auth Adapter](#mcp-auth-adapter)), which implements DCR and Authorization Code + PKCE
 in front of Red Hat SSO. The Kind gateway returns `401` + `WWW-Authenticate` so clients can discover
-the adapter and obtain a token (verified with Claude Code; Cursor requires a Bearer workaround on
-localhost — see [kind/README.md](kind/README.md)).
+the adapter and obtain a token (verified with Claude Code and Cursor on `http://localhost:8001/mcp`
+when PRM matches — see [kind/README.md](kind/README.md)).
 
 [Red Hat Insights MCP](https://github.com/RedHatInsights/insights-mcp) is used as the **example backend
 service**. The same infrastructure supports any number of MCP servers — registering a new one requires only a
@@ -23,7 +23,9 @@ This repository explores two questions:
    [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)?
    — The `kind/` deployment answers this: Kuadrant AuthPolicy emits a `WWW-Authenticate` header
    on `401` so clients discover the authorization server and run DCR + PKCE. **Claude Code**
-   completes this flow on `http://localhost:8001/mcp`; Cursor has a [known bug](kind/README.md#cursor-shows-needsauth-or-err_ssl_client_auth_cert_needed) on the same URL.
+   completes this flow on `http://localhost:8001/mcp`; **Cursor** does too on the same URL when
+   PRM `resource` matches (see [Cursor setup](kind/README.md#cursor) and
+   [troubleshooting](kind/README.md#cursor-shows-needsauth-or-err_ssl_client_auth_cert_needed)).
 
 2. **Can an MCP client call the Red Hat Insights API** using a token obtained through the MCP Auth
    Adapter? — Yes, with scopes `api.console api.ocm` on both stage and production. Verified
@@ -113,7 +115,7 @@ Two deployment options are provided, differing in where authentication is enforc
 | Directory | Stack | Auth enforcement | Use case |
 |---|---|---|---|
 | [`local-deployment/`](local-deployment/) | Binary + Podman Envoy | Pass-through (each backend validates) | Fast local iteration |
-| [`kind/`](kind/) | Kind + Istio + Kuadrant | Kuadrant AuthPolicy at the gateway | Full OAuth flow (Claude Code); Cursor needs Bearer workaround |
+| [`kind/`](kind/) | Kind + Istio + Kuadrant | Kuadrant AuthPolicy at the gateway | Full OAuth flow (Claude Code, Cursor) |
 
 ### Authentication workflows (overview)
 
@@ -246,7 +248,7 @@ image tag: `INSIGHTS_MCP_VALUES="--set image.tag=<tag>" ./setup.sh`.
 | | `local-deployment` | `kind` |
 |---|---|---|
 | Claude Code | Manual Bearer via `cursor-config.sh` (`:8888`) | Native HTTP OAuth (`:8001`) — `claude mcp add mcp-gateway --transport http http://localhost:8001/mcp --scope project` |
-| Cursor | Manual Bearer via `cursor-config.sh` | Broken on localhost — use Bearer workaround or Claude Code |
+| Cursor | Manual Bearer via `cursor-config.sh` | Native HTTP OAuth on `:8001` — Bearer workaround if OAuth fails |
 | Broker token expiry | ~5 min — rerun `start.sh` | ~5 min — run `./refresh-token.sh` |
 | Teardown | `pkill mcp-broker-router && podman stop mcp-envoy` | `./teardown.sh` |
 

@@ -125,7 +125,7 @@ The gateway URL is always `http://localhost:8001/mcp` (HTTP only — no TLS on t
 Use `localhost`, not `mcp.127-0-0-1.sslip.io`; public-looking hostnames can trigger
 HTTPS upgrades in Chromium-based clients.
 
-### Claude Code (recommended — OAuth works)
+### Claude Code
 
 From any project directory (or this repo's `local-deployment/`):
 
@@ -152,9 +152,9 @@ work against production (`console.redhat.com`) when using `env.prod`.
 
 No pre-issued token or `cursor-config.sh` is required.
 
-<a id="cursor-known-limitation"></a>
+<a id="cursor"></a>
 
-### Cursor (known limitation)
+### Cursor
 
 Add the gateway to `~/.cursor/mcp.json`:
 
@@ -168,24 +168,35 @@ Add the gateway to `~/.cursor/mcp.json`:
 }
 ```
 
-> **Cursor bug — HTTP streamable MCP OAuth on localhost:** On the same URL, Cursor's
-> streamableHttp client fails after the initial `401` with `net::ERR_SSL_CLIENT_AUTH_CERT_NEEDED`
-> (your logs: `MCP HTTP exchange completed` → `MCP HTTP exchange failed`). The gateway and PRM
-> are fine — Claude Code proves end-to-end OAuth works. Cursor never completes login.
+Reload MCP via **Settings → MCP → Refresh**. Cursor discovers the MCP Auth Adapter from PRM and
+runs DCR + PKCE automatically — no pre-issued token or `cursor-config.sh` required when OAuth
+succeeds.
+
+**PRM must match your client URL.** If you previously exposed the gateway via ngrok or changed
+the public hostname, re-run `./configure-oauth-metadata.sh` (or `./reconfigure-public-host.sh`)
+so PRM `resource` equals the URL in `mcp.json`. A mismatch produces:
+
+```text
+Protected resource <prm-url> does not match expected <client-url> (or origin)
+```
+
+See [Protected resource does not match](#protected-resource-does-not-match-expected-url).
+
+<a id="cursor-known-limitation"></a>
+
+> **Intermittent Cursor OAuth failures:** Some Cursor versions still fail on localhost HTTP MCP
+> with `net::ERR_SSL_CLIENT_AUTH_CERT_NEEDED` after the initial `401` (logs:
+> `MCP HTTP exchange completed` → `MCP HTTP exchange failed`). This is a Cursor/Chromium issue,
+> not a gateway misconfiguration — the same URL works in Claude Code and often in Cursor once PRM
+> is aligned.
 >
-> **Tracked issues (Cursor forum, 2026):** No ticket names this exact Chromium error string, but
-> Cursor staff have confirmed related bugs in the HTTP + OAuth path for localhost MCP:
-> [Remote MCP server on localhost fails](https://forum.cursor.com/t/remote-mcp-server-on-localhost-fails/157307)
-> (OAuth callback flow; fix claimed on Nightly, still reported broken),
+> **Tracked issues (Cursor forum, 2026):**
+> [Remote MCP server on localhost fails](https://forum.cursor.com/t/remote-mcp-server-on-localhost-fails/157307),
 > [Cursor MCP finds tool but report and error (localhost)](https://forum.cursor.com/t/cursor-mcp-finds-tool-but-report-and-eror-localhost/148664),
 > [OAuth callback ERR_EMPTY_RESPONSE on localhost](https://forum.cursor.com/t/mcp-oauth-callback-returns-err-empty-response-localhost-callback-handler-sends-no-data/154519).
-> Staff workaround in those threads: Bearer header or stdio/`mcp-remote` bridge.
 >
-> **Workaround:** obtain a dynamic DCR token via the existing `get-token` flow and inject it
-> as a Bearer header (see [Troubleshooting](#cursor-shows-needsauth-or-err_ssl_client_auth_cert_needed) below), or
-> use Claude Code for OAuth against this gateway.
-
-Restart Cursor or reload MCP servers (**Settings → MCP → Refresh**) after editing `mcp.json`.
+> **Fallback:** `./cursor-config.sh` injects a dynamic DCR token as a Bearer header — see
+> [Troubleshooting](#cursor-shows-needsauth-or-err_ssl_client_auth_cert_needed).
 
 ## Step 3: Verify
 
@@ -246,8 +257,8 @@ This opens a browser for Red Hat SSO login, updates the Kubernetes Secret, and r
 broker pod to reload credentials.
 
 > **Client tokens** (what MCP clients use for `tools/call`) are obtained via the OAuth flow
-> described in Step 2. Claude Code manages refresh automatically; Cursor requires a
-> workaround today (see Troubleshooting).
+> described in Step 2. Claude Code and Cursor manage refresh automatically when OAuth succeeds;
+> use `./cursor-config.sh` if Cursor OAuth fails (see Troubleshooting).
 
 ## How authentication works (vs local-deployment)
 
@@ -260,7 +271,7 @@ They differ in whether the gateway enforces the JWT before traffic reaches the b
 | Client 401 | Only from insights-mcp (missing headers) | From gateway, before hitting broker |
 | WWW-Authenticate | Not set | Set by AuthPolicy with resource_metadata URL |
 | Claude Code OAuth | Manual Bearer via `cursor-config.sh` on `:8888` | Automatic on `:8001` via `/mcp` |
-| Cursor OAuth | Manual Bearer via `cursor-config.sh` | Broken — `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` (use Bearer workaround) |
+| Cursor OAuth | Manual Bearer via `cursor-config.sh` on `:8888` | Automatic on `:8001` via `/mcp` (Bearer fallback in Troubleshooting) |
 | Broker token refresh | Manual — rerun `cursor-config.sh` | ~5 min — run `./refresh-token.sh` |
 
 ## Manifests
@@ -277,19 +288,28 @@ They differ in whether the gateway enforces the JWT before traffic reaches the b
 
 ### Cursor shows `needsAuth` or `ERR_SSL_CLIENT_AUTH_CERT_NEEDED`
 
-**Confirmed:** The gateway and OAuth metadata are correct — the same
-`http://localhost:8001/mcp` URL works in **Claude Code** with native HTTP OAuth
-(`claude mcp add … --transport http`). The failure is Cursor-specific.
+**Check PRM first.** The most common Cursor failure is a PRM `resource` mismatch after changing
+the client URL (e.g. switching between `localhost:8001` and ngrok). See
+[Protected resource does not match](#protected-resource-does-not-match-expected-url).
 
-See [tracked Cursor forum threads](#cursor-known-limitation) in Step 2 (localhost HTTP MCP OAuth;
-`ERR_SSL_CLIENT_AUTH_CERT_NEEDED` is the Chromium symptom, not a separate gateway misconfig).
+If PRM is correct and OAuth still fails, Cursor may hit a Chromium bug on localhost HTTP MCP.
+The gateway and OAuth metadata are fine — the same `http://localhost:8001/mcp` URL works in
+**Claude Code** with native HTTP OAuth (`claude mcp add … --transport http`).
 
-1. Confirm `~/.cursor/mcp.json` uses `http://localhost:8001/mcp` (not `sslip.io`).
+See [intermittent Cursor OAuth failures](#cursor-known-limitation) in Step 2;
+`ERR_SSL_CLIENT_AUTH_CERT_NEEDED` is the Chromium symptom, not a separate gateway misconfig.
+
+1. Confirm `~/.cursor/mcp.json` uses `http://localhost:8001/mcp` (not `sslip.io`) and PRM matches:
+
+```bash
+curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .resource
+# Expected: "http://localhost:8001/mcp"
+```
+
 2. Check **View → Output → MCP: mcp-gateway** — if you see
    `MCP HTTP exchange completed` followed by `ERR_SSL_CLIENT_AUTH_CERT_NEEDED`,
    Cursor's streamableHttp client failed on the second hop (not the gateway).
-3. **Prefer Claude Code** for OAuth against this Kind deployment (see Step 2).
-4. **Cursor workaround** — dynamic DCR token as Bearer header:
+3. **Bearer fallback** — dynamic DCR token as Bearer header:
 
 ```bash
 source ../env.prod    # or ../env.stage
@@ -297,7 +317,7 @@ source ../env.prod    # or ../env.stage
 # Reload MCP servers in Cursor
 ```
 
-5. Verify the discovery chain from a terminal:
+4. Verify the discovery chain from a terminal:
 
 ```bash
 curl -sS http://localhost:8001/.well-known/oauth-protected-resource | jq .
@@ -307,9 +327,8 @@ curl -sv http://localhost:8001/mcp \
 # Expected: resource_metadata=http://localhost:8001/.well-known/oauth-protected-resource
 ```
 
-If you see `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` in Cursor logs, re-point the cluster
-at `localhost` if needed (`./reconfigure-public-host.sh`), then use the Bearer
-workaround above or switch to Claude Code — do not change the URL to a bridge IP.
+If you see `ERR_SSL_CLIENT_AUTH_CERT_NEEDED` after PRM is aligned, use the Bearer workaround
+above — do not change the URL to a bridge IP.
 
 ### `kubectl wait` times out on MCPGatewayExtension
 
@@ -439,17 +458,32 @@ MCP_PUBLIC_URL=https://ffe2-212-171-132-9.ngrok-free.app/mcp ./cursor-config.sh
 
 ### Protected resource does not match expected URL
 
-Symptom in Cursor logs:
+Symptom in Cursor logs (either direction):
 
 ```text
 Protected resource http://localhost:8001/mcp does not match expected https://<your-host>/mcp
+Protected resource https://<your-host>/mcp does not match expected http://localhost:8001/mcp
 ```
 
-PRM still points at localhost. Run `./reconfigure-public-host.sh` with `MCP_PUBLIC_URL` set to
-your client URL, then verify:
+PRM `resource` must equal the MCP URL in `mcp.json`. After switching between localhost and ngrok
+(or any hostname change), re-point metadata:
 
 ```bash
-curl -sS "${MCP_PRM_URL:-https://your-host/.well-known/oauth-protected-resource}" | jq .resource
+# localhost (default)
+source ../env.stage   # or ../env.prod
+unset MCP_PUBLIC_URL
+export MCP_PUBLIC_HOST=localhost MCP_PUBLIC_PORT=8001
+./configure-oauth-metadata.sh
+
+# ngrok / HTTPS tunnel
+export MCP_PUBLIC_URL=https://<ngrok-host>/mcp
+./reconfigure-public-host.sh
+```
+
+Verify:
+
+```bash
+curl -sS "${MCP_PRM_URL:-http://localhost:8001/.well-known/oauth-protected-resource}" | jq .resource
 ```
 
 On RHOAI the same PRM alignment applies, but the public URL comes from the OpenShift Route
